@@ -1,0 +1,19 @@
+# Data files (auto-generated, jangan di-push)
+dashboard/data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

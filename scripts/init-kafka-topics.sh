@@ -11,13 +11,13 @@ echo " [1/2] Membuat Kafka Topics..."
 echo "=========================================="
 for TOPIC in "${TOPICS[@]}"; do
   echo "--> Membuat topic: $TOPIC"
-  docker exec kafka-broker kafka-topics \\
-    --bootstrap-server $BROKER \\
-    --create \\
-    --if-not-exists \\
-    --topic "$TOPIC" \\
-    --partitions 1 \\
-    --replication-factor 1
+  docker exec kafka-broker kafka-topics \
+  --bootstrap-server $BROKER \
+  --create \
+  --if-not-exists \
+  --topic "$TOPIC" \
+  --partitions 1 \
+  --replication-factor 1
 done
 
 echo ""

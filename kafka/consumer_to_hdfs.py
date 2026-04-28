@@ -7,74 +7,90 @@ from kafka import KafkaConsumer
 from hdfs import InsecureClient
 
 # === KONFIGURASI ===
-KAFKA_BROKER = 'localhost:9092'
+KAFKA_BROKER = 'kafka-broker:29092'      # ✅ internal docker network
 TOPICS = ['airquality-api', 'airquality-rss']
-HDFS_URL = 'http://localhost:9870'
-HDFS_PATH = '/user/dina/airquality/data'
-LOCAL_PATH = 'dashboard/data'
-BUFFER_TIME = 120 
+HDFS_URL = 'http://namenode:9870'        # ✅ internal docker network
+HDFS_USER = 'root'
 
-os.makedirs(LOCAL_PATH, exist_ok=True)
+HDFS_PATHS = {
+    'airquality-api': '/data/airquality/api',
+    'airquality-rss': '/data/airquality/rss',
+}
 
-# 🔧 amanin HDFS client
+LOCAL_PATHS = {
+    'airquality-api': '/app/dashboard/data/api',   # ✅ path di dalam container
+    'airquality-rss': '/app/dashboard/data/rss',
+}
+
+BUFFER_TIME = 120
+
+for path in LOCAL_PATHS.values():
+    os.makedirs(path, exist_ok=True)
+
+# HDFS client
 client = None
 try:
-    client = InsecureClient(HDFS_URL, user='dina')
+    client = InsecureClient(HDFS_URL, user=HDFS_USER)
+    print("[HDFS] Client berhasil dibuat")
 except Exception as e:
-    print(f"Warning HDFS Client: {e}")
+    print(f"[HDFS WARNING] Client gagal: {e}")
 
-buffer_data = []
+buffer_data = {
+    'airquality-api': [],
+    'airquality-rss': [],
+}
 buffer_lock = threading.Lock()
 
+
 def save_buffer():
-    global buffer_data
     while True:
         time.sleep(BUFFER_TIME)
 
-        with buffer_lock:
-            if not buffer_data:
-                continue
+        for topic in TOPICS:
+            with buffer_lock:
+                if not buffer_data[topic]:
+                    print(f"[SAVE] Buffer kosong untuk {topic}, skip")
+                    continue
 
-            print(f"--- [SAVE] Mengolah {len(buffer_data)} event dalam buffer ---")
+                data_to_save = buffer_data[topic].copy()
+                buffer_data[topic].clear()
 
-            # 🔥 copy dulu biar aman
-            data_to_save = buffer_data.copy()
-            buffer_data.clear()
+            print(f"--- [SAVE] {topic}: {len(data_to_save)} events ---")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"data_{timestamp}.json"
-        local_file = os.path.join(LOCAL_PATH, filename)
-        hdfs_file = f"{HDFS_PATH}/{filename}"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"data_{timestamp}.json"
 
-        # === SAVE LOCAL ===
-        try:
-            with open(local_file, 'w') as f:
-                json.dump(data_to_save, f, indent=4)
-            print(f"[LOCAL] Saved: {local_file}")
-        except Exception as e:
-            print(f"[LOCAL ERROR] {e}")
-
-        # === SAVE HDFS ===
-        if client:
+            # === SAVE LOCAL ===
+            local_file = os.path.join(LOCAL_PATHS[topic], filename)
             try:
-                client.makedirs(HDFS_PATH)
-                with client.write(hdfs_file, encoding='utf-8') as writer:
-                    json.dump(data_to_save, writer)
-                print(f"[HDFS] Uploaded: {hdfs_file}")
+                with open(local_file, 'w') as f:
+                    json.dump(data_to_save, f, indent=4)
+                print(f"[LOCAL] Saved: {local_file}")
             except Exception as e:
-                print(f"[HDFS ERROR] {e}. Pastikan HDFS nyala!")
-        else:
-            print("[HDFS SKIP] Client tidak tersedia")
+                print(f"[LOCAL ERROR] {topic}: {e}")
+
+            # === SAVE HDFS ===
+            if client:
+                hdfs_file = f"{HDFS_PATHS[topic]}/{filename}"
+                try:
+                    client.makedirs(HDFS_PATHS[topic])
+                    with client.write(hdfs_file, encoding='utf-8') as writer:
+                        json.dump(data_to_save, writer, indent=4)
+                    print(f"[HDFS] Uploaded: {hdfs_file}")
+                except Exception as e:
+                    print(f"[HDFS ERROR] {topic}: {e}")
+            else:
+                print(f"[HDFS SKIP] Client tidak tersedia untuk {topic}")
 
 
 def consume_topic(topic_name):
-    print(f"--- [START] Consumer untuk Topic: {topic_name} ---")
+    print(f"--- [START] Consumer: {topic_name} ---")
 
     consumer = KafkaConsumer(
         topic_name,
         bootstrap_servers=[KAFKA_BROKER],
         auto_offset_reset='earliest',
-        group_id='airquality-group',  # 🔥 penting biar tidak duplikat
+        group_id='airquality-group',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
 
@@ -84,9 +100,9 @@ def consume_topic(topic_name):
         event['ingested_at'] = datetime.now().isoformat()
 
         with buffer_lock:
-            buffer_data.append(event)
+            buffer_data[topic_name].append(event)
 
-        print(f"[RECEIVED] Data from {topic_name}")
+        print(f"[RECEIVED] {topic_name} | offset: {message.offset}")
 
 
 if __name__ == "__main__":
@@ -98,6 +114,5 @@ if __name__ == "__main__":
     t2.start()
     t3.start()
 
-    # 🔥 biar program tetap jalan
     t1.join()
     t2.join()

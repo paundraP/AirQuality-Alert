@@ -21,6 +21,8 @@ services:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: datanode
     restart: always
+    ports:
+      - "9864:9864"
     volumes:
       - hadoop_datanode:/hadoop/dfs/data
     environment:
@@ -69,6 +71,20 @@ services:
     networks:
       - hadoop-net
 
+  # ✅ Consumer service
+  consumer:
+    build: ./kafka
+    container_name: consumer
+    restart: always
+    depends_on:
+      - namenode
+      - datanode
+    volumes:
+      - ./dashboard/data:/app/dashboard/data
+    networks:
+      - hadoop-net
+      - kafka-net
+
 volumes:
   hadoop_namenode:
   hadoop_datanode:
@@ -77,3 +93,5 @@ volumes:
 networks:
   hadoop-net:
     driver: bridge
+  kafka-net:
+    external: true    # ✅ pakai network yang sudah dibuat oleh docker-compose-kafka.yml

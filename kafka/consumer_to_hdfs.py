@@ -1,16 +1,17 @@
 import json
-import time
 import os
 import threading
+import time
 from datetime import datetime
-from kafka import KafkaConsumer
+
 from hdfs import InsecureClient
+from kafka import KafkaConsumer
 
 # === KONFIGURASI ===
-KAFKA_BROKER = 'kafka-broker:29092'      # ✅ internal docker network
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'kafka-broker:29092')
 TOPICS = ['airquality-api', 'airquality-rss']
-HDFS_URL = 'http://namenode:9870'        # ✅ internal docker network
-HDFS_USER = 'root'
+HDFS_URL = os.getenv('HDFS_URL', 'http://namenode:9870')
+HDFS_USER = os.getenv('HDFS_USER', 'root')
 
 HDFS_PATHS = {
     'airquality-api': '/data/airquality/api',
@@ -22,18 +23,11 @@ LOCAL_PATHS = {
     'airquality-rss': '/app/dashboard/data/rss',
 }
 
-BUFFER_TIME = 120
+BUFFER_TIME = int(os.getenv('BUFFER_TIME', '120'))
+RETRY_DELAY = int(os.getenv('RETRY_DELAY', '5'))
 
 for path in LOCAL_PATHS.values():
     os.makedirs(path, exist_ok=True)
-
-# HDFS client
-client = None
-try:
-    client = InsecureClient(HDFS_URL, user=HDFS_USER)
-    print("[HDFS] Client berhasil dibuat")
-except Exception as e:
-    print(f"[HDFS WARNING] Client gagal: {e}")
 
 buffer_data = {
     'airquality-api': [],
@@ -42,9 +36,22 @@ buffer_data = {
 buffer_lock = threading.Lock()
 
 
+def get_hdfs_client():
+    client = InsecureClient(HDFS_URL, user=HDFS_USER)
+    client.status('/')
+    return client
+
+
 def save_buffer():
     while True:
         time.sleep(BUFFER_TIME)
+
+        try:
+            client = get_hdfs_client()
+            print(f"[HDFS] Connected: {HDFS_URL}")
+        except Exception as e:
+            client = None
+            print(f"[HDFS WARNING] Client gagal: {e}")
 
         for topic in TOPICS:
             with buffer_lock:
@@ -85,14 +92,21 @@ def save_buffer():
 
 def consume_topic(topic_name):
     print(f"--- [START] Consumer: {topic_name} ---")
+    consumer = None
 
-    consumer = KafkaConsumer(
-        topic_name,
-        bootstrap_servers=[KAFKA_BROKER],
-        auto_offset_reset='earliest',
-        group_id='airquality-group',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-    )
+    while consumer is None:
+        try:
+            consumer = KafkaConsumer(
+                topic_name,
+                bootstrap_servers=[KAFKA_BROKER],
+                auto_offset_reset='earliest',
+                group_id='airquality-consumer-group',
+                value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+            )
+            print(f"[KAFKA] Connected to {KAFKA_BROKER} for {topic_name}")
+        except Exception as e:
+            print(f"[KAFKA WARNING] {topic_name}: {e}. Retry in {RETRY_DELAY}s")
+            time.sleep(RETRY_DELAY)
 
     for message in consumer:
         event = message.value

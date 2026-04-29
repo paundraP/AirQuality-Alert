@@ -2,20 +2,35 @@ import feedparser
 import json
 import time
 import hashlib
+import os
 from datetime import datetime
 from kafka import KafkaProducer
 
+# === KONFIGURASI ===
 KAFKA_BROKER = 'localhost:9092'
 TOPIC_NAME = 'airquality-rss'
+SENT_ARTICLES_FILE = 'sent_articles.json'
 
 RSS_SOURCES = {
-    # Tambah User-Agent langsung di URL tidak bisa, jadi pakai feedparser agent
     "tempo":  "https://www.tempo.co/rss/nasional",
     "kompas": "https://news.google.com/rss/search?q=polusi+udara+kompas&hl=id&gl=ID&ceid=ID:id",
     "detik":  "https://news.google.com/rss/search?q=polusi+udara+detik&hl=id&gl=ID&ceid=ID:id",
 }
 
-sent_articles = set()
+# ✅ Load sent_articles dari file agar persist antar run
+def load_sent_articles():
+    if os.path.exists(SENT_ARTICLES_FILE):
+        with open(SENT_ARTICLES_FILE, 'r') as f:
+            data = json.load(f)
+            print(f"[INFO] Loaded {len(data)} artikel dari cache")
+            return set(data)
+    return set()
+
+def save_sent_articles(sent):
+    with open(SENT_ARTICLES_FILE, 'w') as f:
+        json.dump(list(sent), f)
+
+sent_articles = load_sent_articles()
 
 def fetch_rss_news():
     print("--- Memulai Pooling RSS Berita (Anti-Duplicate & Hash) ---")
@@ -26,13 +41,11 @@ def fetch_rss_news():
         )
 
         for sumber, url in RSS_SOURCES.items():
-            # ✅ FIX 1: Set User-Agent agar tidak diblokir
             feedparser.USER_AGENT = (
                 "Mozilla/5.0 (compatible; NewsAggregator/1.0; +https://yourproject.com)"
             )
             feed = feedparser.parse(url)
 
-            # ✅ FIX 2: Debug log — tampilkan jumlah entry yang ditemukan
             print(f"[DEBUG] {sumber.upper()} → {len(feed.entries)} entries ditemukan | "
                   f"status: {getattr(feed, 'status', 'N/A')} | "
                   f"bozo: {feed.bozo}")
@@ -48,7 +61,7 @@ def fetch_rss_news():
                 article_id = hashlib.md5(entry.link.encode()).hexdigest()[:8]
 
                 if article_id in sent_articles:
-                    print(f"  [SKIP] Duplikat: {article_id}")
+                    print(f"  [SKIP] Duplikat: {article_id} | {entry.title[:50]}...")
                     continue
 
                 payload = {
@@ -63,11 +76,12 @@ def fetch_rss_news():
 
                 producer.send(TOPIC_NAME, value=payload)
                 sent_articles.add(article_id)
+                save_sent_articles(sent_articles)  # ✅ persist setiap artikel baru
                 print(f"  [SENT RSS] {sumber.upper()} | {article_id} | {entry.title[:50]}...")
                 time.sleep(0.3)
 
         producer.flush()
-        print("\nRSS Pooling Selesai!")
+        print(f"\nRSS Pooling Selesai! Total cache: {len(sent_articles)} artikel")
 
     except Exception as e:
         print(f"[ERROR] {e}")

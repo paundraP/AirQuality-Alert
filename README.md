@@ -22,11 +22,7 @@ Cek: docker ps → harus ada zookeeper, kafka-broker, kafka-ui
 
 5. Jalanin Kafka untuk collect API dan RSS serta dimasukin ke hdfs
 
-`python3 producer_api.py`
-
-lalu
-
-`python3 producer_rss.py`
+`bash scripts/run-producers-and-wait-hdfs.sh`
 
 ## Arsitektur Sistem
 

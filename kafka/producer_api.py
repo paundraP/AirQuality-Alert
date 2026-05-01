@@ -3,7 +3,7 @@ import json
 import time
 from kafka import KafkaProducer
 
-KAFKA_BROKER = 'localhost:9092'
+KAFKA_BROKER = 'kafka-broker:29092'
 TOPIC_NAME = 'airquality-api'
 
 BASE_URL = "https://ispu.kemenlh.go.id/apimobile/v1"

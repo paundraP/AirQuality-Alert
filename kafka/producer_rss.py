@@ -7,7 +7,7 @@ from datetime import datetime
 from kafka import KafkaProducer
 
 # === KONFIGURASI ===
-KAFKA_BROKER = 'localhost:9092'
+KAFKA_BROKER = 'kafka-broker:29092'
 TOPIC_NAME = 'airquality-rss'
 SENT_ARTICLES_FILE = 'sent_articles.json'
 

@@ -1,0 +1,69 @@
+{
+  "distribusi_kategori": [
+    { "kota": "banyuwangi",  "kategori": "Baik",   "persentase": 100.0 },
+    { "kota": "bojonegoro",  "kategori": "Sedang", "persentase": 100.0 },
+    { "kota": "jombang",     "kategori": "Baik",   "persentase": 66.7 },
+    { "kota": "jombang",     "kategori": "Sedang", "persentase": 33.3 },
+    { "kota": "lumajang",    "kategori": "Baik",   "persentase": 100.0 },
+    { "kota": "madiun",      "kategori": "Sedang", "persentase": 100.0 },
+    { "kota": "malang",      "kategori": "Baik",   "persentase": 66.7 },
+    { "kota": "malang",      "kategori": "Sedang", "persentase": 33.3 },
+    { "kota": "mojokerto",   "kategori": "Sedang", "persentase": 100.0 },
+    { "kota": "pasuruan",    "kategori": "Baik",   "persentase": 66.7 },
+    { "kota": "pasuruan",    "kategori": "Sedang", "persentase": 33.3 },
+    { "kota": "probolinggo", "kategori": "Sedang", "persentase": 100.0 },
+    { "kota": "surabaya",    "kategori": "Sedang", "persentase": 100.0 }
+  ],
+  "aqi_per_jam": [
+    { "kota": "surabaya",    "jam": 10, "avg_aqi": 67.0, "jumlah_data": 1 },
+    { "kota": "surabaya",    "jam": 7,  "avg_aqi": 62.0, "jumlah_data": 1 },
+    { "kota": "surabaya",    "jam": 5,  "avg_aqi": 62.0, "jumlah_data": 1 },
+    { "kota": "probolinggo", "jam": 5,  "avg_aqi": 71.0, "jumlah_data": 1 },
+    { "kota": "probolinggo", "jam": 7,  "avg_aqi": 71.0, "jumlah_data": 1 },
+    { "kota": "probolinggo", "jam": 10, "avg_aqi": 71.0, "jumlah_data": 1 },
+    { "kota": "madiun",      "jam": 5,  "avg_aqi": 66.0, "jumlah_data": 1 },
+    { "kota": "madiun",      "jam": 7,  "avg_aqi": 66.0, "jumlah_data": 1 },
+    { "kota": "madiun",      "jam": 10, "avg_aqi": 66.0, "jumlah_data": 1 }
+  ],
+  "ranking_kota": [
+    { "peringkat": 1,  "kota": "probolinggo", "avg_aqi": 71.0, "max_aqi": 71, "min_aqi": 71, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 2,  "kota": "surabaya",    "avg_aqi": 63.7, "max_aqi": 67, "min_aqi": 62, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 3,  "kota": "madiun",      "avg_aqi": 66.0, "max_aqi": 66, "min_aqi": 66, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 4,  "kota": "mojokerto",   "avg_aqi": 55.3, "max_aqi": 56, "min_aqi": 54, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 5,  "kota": "bojonegoro",  "avg_aqi": 54.0, "max_aqi": 57, "min_aqi": 52, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 6,  "kota": "pasuruan",    "avg_aqi": 52.3, "max_aqi": 57, "min_aqi": 50, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 7,  "kota": "malang",      "avg_aqi": 46.7, "max_aqi": 54, "min_aqi": 42, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 8,  "kota": "jombang",     "avg_aqi": 45.7, "max_aqi": 51, "min_aqi": 41, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 9,  "kota": "banyuwangi",  "avg_aqi": 29.7, "max_aqi": 32, "min_aqi": 25, "event_tidak_sehat": 0, "total_data": 3 },
+    { "peringkat": 10, "kota": "lumajang",    "avg_aqi": 25.0, "max_aqi": 25, "min_aqi": 25, "event_tidak_sehat": 0, "total_data": 3 }
+  ],
+  "jam_puncak_per_kota": [
+    { "kota": "banyuwangi",  "jam_puncak": 5,  "avg_aqi_puncak": 32.0, "jumlah_data_puncak": 1, "sesi": "Dini Hari (00-06)" },
+    { "kota": "bojonegoro",  "jam_puncak": 10, "avg_aqi_puncak": 57.0, "jumlah_data_puncak": 1, "sesi": "Siang (10-16)" },
+    { "kota": "jombang",     "jam_puncak": 10, "avg_aqi_puncak": 51.0, "jumlah_data_puncak": 1, "sesi": "Siang (10-16)" },
+    { "kota": "lumajang",    "jam_puncak": 5,  "avg_aqi_puncak": 25.0, "jumlah_data_puncak": 1, "sesi": "Dini Hari (00-06)" },
+    { "kota": "madiun",      "jam_puncak": 5,  "avg_aqi_puncak": 66.0, "jumlah_data_puncak": 1, "sesi": "Dini Hari (00-06)" },
+    { "kota": "malang",      "jam_puncak": 10, "avg_aqi_puncak": 54.0, "jumlah_data_puncak": 1, "sesi": "Siang (10-16)" },
+    { "kota": "mojokerto",   "jam_puncak": 5,  "avg_aqi_puncak": 56.0, "jumlah_data_puncak": 1, "sesi": "Dini Hari (00-06)" },
+    { "kota": "pasuruan",    "jam_puncak": 10, "avg_aqi_puncak": 57.0, "jumlah_data_puncak": 1, "sesi": "Siang (10-16)" },
+    { "kota": "probolinggo", "jam_puncak": 5,  "avg_aqi_puncak": 71.0, "jumlah_data_puncak": 1, "sesi": "Dini Hari (00-06)" },
+    { "kota": "surabaya",    "jam_puncak": 10, "avg_aqi_puncak": 67.0, "jumlah_data_puncak": 1, "sesi": "Siang (10-16)" }
+  ],
+  "prediksi_aqi": [
+    { "kota": "surabaya",    "jam": 0, "predicted_aqi": 58.3 },
+    { "kota": "surabaya",    "jam": 6, "predicted_aqi": 60.1 },
+    { "kota": "surabaya",    "jam": 12, "predicted_aqi": 62.0 },
+    { "kota": "probolinggo", "jam": 0, "predicted_aqi": 70.0 },
+    { "kota": "probolinggo", "jam": 6, "predicted_aqi": 71.0 },
+    { "kota": "probolinggo", "jam": 12, "predicted_aqi": 71.0 }
+  ],
+  "model_metrics": {
+    "algorithm": "LinearRegression",
+    "features": ["jam", "kota (one-hot)"],
+    "train_rows": 24,
+    "test_rows": 6,
+    "rmse": 8.42,
+    "r2": 0.21
+  },
+  "generated_at": "2026-05-04T16:30:00+07:00"
+}

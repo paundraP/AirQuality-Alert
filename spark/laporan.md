@@ -110,6 +110,64 @@ Tidak ditemukan pola jam sibuk pagi (07–09) maupun sore (17–19) pada data in
 4. **Penguatan pemantauan** — Prioritaskan pengukuran lebih sering di Probolinggo (AQI 71) dan Surabaya (AQI 67) sebagai kota dengan polusi tertinggi.
 5. **Edukasi berbasis lokal** — Jadwal penyuluhan dan peringatan harus disesuaikan per kota, bukan satu jadwal nasional.
 
+---
+
+## Analisis 3: Ranking Kota AQI Terburuk
+
+Mengurutkan kota berdasarkan rata-rata AQI plus jumlah event "Tidak Sehat" (AQI > 100). Window function `rank()` digunakan untuk menentukan peringkat.
+
+### Ranking Kota (Snapshot)
+
+| Peringkat | Kota | Avg AQI | Max AQI | Min AQI | Event Tidak Sehat | Total Data |
+|-----------|------|---------|---------|---------|-------------------|------------|
+| 1 | Probolinggo | 71.0 | 71 | 71 | 0 | 3 |
+| 2 | Madiun      | 66.0 | 66 | 66 | 0 | 3 |
+| 3 | Surabaya    | 63.7 | 67 | 62 | 0 | 3 |
+| 4 | Mojokerto   | 55.3 | 56 | 54 | 0 | 3 |
+| 5 | Bojonegoro  | 54.0 | 57 | 52 | 0 | 3 |
+| 6 | Pasuruan    | 52.3 | 57 | 50 | 0 | 3 |
+| 7 | Malang      | 46.7 | 54 | 42 | 0 | 3 |
+| 8 | Jombang     | 45.7 | 51 | 41 | 0 | 3 |
+| 9 | Banyuwangi  | 29.7 | 32 | 25 | 0 | 3 |
+| 10 | Lumajang   | 25.0 | 25 | 25 | 0 | 3 |
+
+### Insight Ranking
+
+- **Probolinggo, Madiun, Surabaya** menempati 3 besar — kandidat prioritas intervensi struktural Dinas Kesehatan.
+- **Lumajang & Banyuwangi** konsisten di kategori Baik — bisa dijadikan benchmark kota target.
+- Kolom `event_tidak_sehat = 0` di semua kota wajar untuk Jatim periode ini; kolom ini akan jadi indikator penting begitu producer berjalan kontinu di musim kemarau.
+
+---
+
+## Bonus AQI-B2: Prediksi AQI dengan Spark MLlib
+
+Model **Linear Regression** dengan fitur:
+
+- `jam` (numerik 0-23)
+- `kota` (StringIndexer + OneHotEncoder)
+
+Target: `aqi`. Split 80:20 dengan `seed=42`.
+
+Output model (5 kota × 24 jam = 120 baris prediksi) ditambahkan ke `spark_results.json` dengan key `prediksi_aqi`. Dashboard A5 akan menampilkan kurva prediksi sebagai garis putus-putus melengkapi data live.
+
+> Akurasi terbatas pada snapshot kecil saat ini — RMSE & R² dicatat di key `model_metrics`. Begitu data historis bertambah dan kita menambah fitur cuaca/lag AQI, ganti model ke `GBTRegressor` untuk performa lebih baik.
+
+---
+
+## Output Gabungan untuk Dashboard
+
+File `dashboard/data/spark_results.json` berisi:
+
+- `distribusi_kategori` (Analisis 1)
+- `aqi_per_jam` + `jam_puncak_per_kota` (Analisis 2)
+- `ranking_kota` (Analisis 3)
+- `prediksi_aqi` + `model_metrics` (bonus MLlib)
+- `generated_at`
+
+Format lengkap dijelaskan di [`spark_results_schema.md`](./spark_results_schema.md). Sample mock di [`spark_results.example.json`](./spark_results.example.json) untuk testing dashboard tanpa harus menjalankan Spark.
+
+---
+
 ### ⚠️ Catatan Validitas Data
 
 Data saat ini masih terbatas — setiap slot jam hanya memiliki **1 data point** dan hanya mencakup **3 waktu pengukuran** (jam 05, 07, 10). Untuk kesimpulan yang valid secara statistik, producer perlu dijalankan terjadwal setiap 1 jam selama minimal 7–14 hari.

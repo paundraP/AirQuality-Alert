@@ -24,6 +24,29 @@ Cek: docker ps → harus ada zookeeper, kafka-broker, kafka-ui
 
 `bash scripts/run-producers-and-wait-hdfs.sh`
 
+6. Jalanin notebook Spark untuk menghasilkan `dashboard/data/spark_results.json`
+
+`bash scripts/run-spark-analysis.sh`
+
+### Jalanin Semua Sekaligus (untuk A5/Dashboard)
+
+Kalau pengen end-to-end dari setup sampai data JSON siap dipakai dashboard:
+
+```bash
+# Pastikan compose Hadoop & Kafka sudah jalan duluan, lalu:
+bash scripts/run-all.sh
+```
+
+Script ini memanggil `init-kafka-topics.sh` -> `run-producers-and-wait-hdfs.sh` -> `run-spark-analysis.sh` secara berurutan. Hasil akhir di `dashboard/data/spark_results.json` (untuk endpoint `/api/spark`) plus folder `dashboard/data/api/` & `dashboard/data/rss/` (untuk `/api/live` & `/api/news`).
+
+Flag opsional untuk skip step:
+
+```bash
+SKIP_INIT=1       bash scripts/run-all.sh   # lewati setup topics+HDFS
+SKIP_INGESTION=1  bash scripts/run-all.sh   # lewati producer
+SKIP_SPARK=1      bash scripts/run-all.sh   # lewati Spark
+```
+
 ## Arsitektur Sistem
 
 ```

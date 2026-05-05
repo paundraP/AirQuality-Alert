@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirQuality Alert | Jawa Timur</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>AirQuality Alert Jatim</h1>
+        <div class="last-updated">
+            <div class="status-dot"></div>
+            <span>Live System Active</span>
+            <span id="update-time" style="margin-left: 10px; color: #64748b;">Loading...</span>
+        </div>
+    </header>
+
+    <div class="dashboard-grid">
+        <!-- Panel 1: Live API Data -->
+        <div class="panel col-span-8">
+            <h2 class="panel-title">
+                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                Pemantauan Kualitas Udara Real-time (AQI)
+            </h2>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kota</th>
+                            <th>Nilai AQI</th>
+                            <th>Kategori</th>
+                            <th>Waktu Pembaruan</th>
+                        </tr>
+                    </thead>
+                    <tbody id="live-api-body">
+                        <!-- Data will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Panel 2: Live RSS -->
+        <div class="panel col-span-4">
+            <h2 class="panel-title">
+                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1m2 13a2 2 0 0 1-2-2V7m2 13a2 2 0 0 0 2-2V9.5a2.5 2.5 0 0 0-2.5-2.5H15"></path></svg>
+                Berita Lingkungan Terbaru
+            </h2>
+            <div class="news-list" id="live-rss-body">
+                <!-- Data will be injected here -->
+            </div>
+        </div>
+
+        <!-- Panel 3: Spark Analysis Results -->
+        <div class="panel col-span-12">
+            <h2 class="panel-title" style="color: #a78bfa;">
+                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"></path></svg>
+                Hasil Analisis Apache Spark (Historical Insights)
+            </h2>
+            
+            <div class="dashboard-grid" style="margin-top: 1rem;">
+                
+                <!-- Spark: Worst Cities -->
+                <div class="panel col-span-4" style="background: rgba(0,0,0,0.2);">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem;">Ranking Kota AQI Terburuk</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Kota</th>
+                                <th>Rata-rata AQI</th>
+                            </tr>
+                        </thead>
+                        <tbody id="spark-worst-body">
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Spark: AQI Distribution -->
+                <div class="panel col-span-8" style="background: rgba(0,0,0,0.2);">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem;">Distribusi Kategori AQI per Kota</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Kota</th>
+                                <th style="width: 50%;">Distribusi (Baik - Sedang - Tidak Sehat - Berbahaya)</th>
+                                <th>Total Event</th>
+                            </tr>
+                        </thead>
+                        <tbody id="spark-dist-body">
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function getBadgeClass(category) {
+            if (!category) return 'badge-moderate';
+            category = category.toLowerCase();
+            if (category.includes('baik')) return 'badge-good';
+            if (category.includes('sedang')) return 'badge-moderate';
+            if (category.includes('tidak sehat')) return 'badge-unhealthy';
+            if (category.includes('berbahaya')) return 'badge-hazardous';
+            return 'badge-moderate';
+        }
+
+        function getAqiColor(aqi) {
+            if (aqi <= 50) return '#10b981';
+            if (aqi <= 100) return '#f59e0b';
+            if (aqi <= 150) return '#ef4444';
+            return '#7f1d1d';
+        }
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
+                
+                // Update timestamp
+                const now = new Date();
+                document.getElementById('update-time').innerText = `Terakhir diperbarui: ${now.toLocaleTimeString()}`;
+
+                // Update Live API
+                const apiBody = document.getElementById('live-api-body');
+                apiBody.innerHTML = '';
+                if (data.live_api && data.live_api.length > 0) {
+                    data.live_api.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="font-weight: 600;">${item.city}</td>
+                            <td><span style="font-weight: 700; color: ${getAqiColor(item.aqi)};">${item.aqi}</span></td>
+                            <td><span class="badge ${getBadgeClass(item.category)}">${item.category}</span></td>
+                            <td style="color: var(--text-secondary); font-size: 0.875rem;">${new Date(item.timestamp).toLocaleString('id-ID')}</td>
+                        `;
+                        apiBody.appendChild(tr);
+                    });
+                } else {
+                    apiBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Tidak ada data API tersedia.</td></tr>';
+                }
+
+                // Update Live RSS
+                const rssBody = document.getElementById('live-rss-body');
+                rssBody.innerHTML = '';
+                if (data.live_rss && data.live_rss.length > 0) {
+                    data.live_rss.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'news-item';
+                        div.innerHTML = `
+                            <a href="${item.link}" target="_blank" class="news-title">${item.title}</a>
+                            <div class="news-meta">${new Date(item.published).toLocaleString('id-ID')}</div>
+                            ${item.summary ? `<div class="news-summary">${item.summary.substring(0, 100)}...</div>` : ''}
+                        `;
+                        rssBody.appendChild(div);
+                    });
+                } else {
+                    rssBody.innerHTML = '<div style="text-align: center; color: var(--text-secondary);">Tidak ada berita tersedia.</div>';
+                }
+
+                // Update Spark Data
+                if (data.spark_results) {
+                    // Worst Cities
+                    const worstBody = document.getElementById('spark-worst-body');
+                    worstBody.innerHTML = '';
+                    if (data.spark_results.worst_cities) {
+                        data.spark_results.worst_cities.forEach(item => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>#${item.rank}</td>
+                                <td>${item.city}</td>
+                                <td><span style="color: ${getAqiColor(item.avg_aqi)}; font-weight: bold;">${item.avg_aqi.toFixed(1)}</span></td>
+                            `;
+                            worstBody.appendChild(tr);
+                        });
+                    }
+
+                    // Distribution
+                    const distBody = document.getElementById('spark-dist-body');
+                    distBody.innerHTML = '';
+                    if (data.spark_results.aqi_distribution) {
+                        data.spark_results.aqi_distribution.forEach(item => {
+                            const total = item.baik + item.sedang + item.tidak_sehat + item.berbahaya;
+                            const pBaik = (item.baik / total) * 100;
+                            const pSedang = (item.sedang / total) * 100;
+                            const pTidakSehat = (item.tidak_sehat / total) * 100;
+                            const pBerbahaya = (item.berbahaya / total) * 100;
+
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td style="font-weight: 600;">${item.city}</td>
+                                <td>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-segment" style="width: ${pBaik}%; background-color: #10b981;" title="Baik: ${item.baik}"></div>
+                                        <div class="progress-segment" style="width: ${pSedang}%; background-color: #f59e0b;" title="Sedang: ${item.sedang}"></div>
+                                        <div class="progress-segment" style="width: ${pTidakSehat}%; background-color: #ef4444;" title="Tidak Sehat: ${item.tidak_sehat}"></div>
+                                        <div class="progress-segment" style="width: ${pBerbahaya}%; background-color: #7f1d1d;" title="Berbahaya: ${item.berbahaya}"></div>
+                                    </div>
+                                </td>
+                                <td>${total} events</td>
+                            `;
+                            distBody.appendChild(tr);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        // Fetch immediately, then every 30 seconds
+        fetchData();
+        setInterval(fetchData, 30000);
+    </script>
+</body>
+</html>

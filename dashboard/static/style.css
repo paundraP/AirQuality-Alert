@@ -249,3 +249,105 @@ tbody tr:hover {
 .progress-segment {
   height: 100%;
 }
+
+/* Map and Chart Styles */
+#map {
+  height: 400px;
+  width: 100%;
+  border-radius: 0.75rem;
+  z-index: 1; /* Ensure map doesn't overlap other elements like dropdowns */
+}
+
+/* Leaflet specific overrides for dark theme */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: var(--panel-bg);
+  color: var(--text-primary);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+}
+.leaflet-popup-content {
+  margin: 13px 19px;
+  line-height: 1.4;
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--text-secondary);
+}
+
+.chart-container {
+  position: relative;
+  height: 300px;
+  width: 100%;
+}
+
+/* Stat Cards */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.stat-card-new {
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease;
+}
+.stat-card-new:hover {
+  transform: translateY(-5px);
+}
+.stat-title {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+.stat-value-large {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* Alert Animation */
+@keyframes emergency-pulse {
+  0% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: inset 0 0 0 10px rgba(239, 68, 68, 0); }
+  100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+.row-alert {
+  animation: emergency-pulse 2s infinite !important;
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+.row-alert td {
+  color: #fca5a5 !important;
+}
+
+/* AI Insights Banner */
+.ai-insight-banner {
+  background: linear-gradient(to right, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+  border-left: 4px solid var(--accent-purple);
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+.ai-insight-banner h4 {
+  color: #c4b5fd;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ai-insight-banner p {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  margin-bottom: 0.25rem;
+}

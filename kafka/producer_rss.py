@@ -7,9 +7,9 @@ from datetime import datetime
 from kafka import KafkaProducer
 
 # === KONFIGURASI ===
-KAFKA_BROKER = 'kafka-broker:29092'
-TOPIC_NAME = 'airquality-rss'
-SENT_ARTICLES_FILE = 'sent_articles.json'
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'localhost:9092')
+TOPIC_NAME = os.getenv('RSS_TOPIC_NAME', 'airquality-rss')
+SENT_ARTICLES_FILE = os.getenv('SENT_ARTICLES_FILE', 'sent_articles.json')
 
 RSS_SOURCES = {
     "tempo":  "https://www.tempo.co/rss/nasional",

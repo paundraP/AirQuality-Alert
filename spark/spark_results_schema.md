@@ -1,8 +1,8 @@
 # `spark_results.json` — Kontrak Format A4 ↔ A5
 
-File ini adalah **kontrak format** antara A4 (Spark) dan A5 (Dashboard). File aktual di-generate oleh `spark/analysis.ipynb` (cell terakhir AQI-10) ke path `dashboard/data/spark_results.json`. Dashboard membacanya via endpoint `GET /api/spark`.
+File ini adalah **kontrak format** antara A4 (Spark) dan A5 (Dashboard). File aktual di-generate oleh `spark/analysis.py` ke path `dashboard/data/spark_results.json`. Dashboard membacanya via endpoint `GET /api/data`.
 
-> **Catatan:** path `dashboard/data/` ada di `.gitignore`, jadi file ini tidak ikut di-push. A5 cukup menjalankan notebook A4 sekali untuk menghasilkan file lokal sebelum testing.
+> **Catatan:** path `dashboard/data/` ada di `.gitignore`, jadi file ini tidak ikut di-push. Jalankan pipeline Docker atau `python3 spark/analysis.py` di container scheduler untuk menghasilkan file lokal sebelum testing.
 
 ## Struktur Top-Level
 
@@ -149,7 +149,7 @@ ISO-8601 string dengan offset WIB, contoh: `2026-05-04T16:30:00+07:00`. Dashboar
 ```bash
 # Dari root repo
 cd spark
-jupyter nbconvert --to notebook --execute analysis.ipynb --inplace
+python3 spark/analysis.py
 ```
 
 Setelah perintah di atas, file `dashboard/data/spark_results.json` akan ter-overwrite dengan hasil terbaru dari HDFS.

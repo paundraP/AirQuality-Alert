@@ -69,7 +69,7 @@ Pipeline Big Data untuk memantau Air Quality Index (AQI) kota-kota di Jawa Timur
             │                   │
             ▼                   ▼
    ┌────────────────┐  ┌────────────────────┐
-   │ analysis.ipynb │  │ dashboard/app.py   │
+   │ analysis.py    │  │ dashboard/app.py   │
    └──────┬─────────┘  └────────┬───────────┘
           │                     │
           ▼                     ▼
@@ -103,19 +103,19 @@ Pipeline Big Data untuk memantau Air Quality Index (AQI) kota-kota di Jawa Timur
 
 ```
 AirQuality-Alert/
-├── docker-compose-kafka.yml          # Kafka + ZooKeeper + Kafka UI
-├── docker-compose-hadoop.yml         # HDFS (NameNode, DataNode, YARN) + Consumer
+├── docker-compose.yml                # Stack realtime: Kafka + HDFS + scheduler + dashboard
+├── Dockerfile                        # Runtime Python untuk consumer, scheduler, dashboard
+├── requirements.txt                  # Dependensi Python container
 ├── hadoop.env                        # Konfigurasi environment Hadoop
 │
 ├── kafka/                            # Data Ingestion Layer
-│   ├── Dockerfile                    # Image consumer (Python 3.11)
 │   ├── producer_api.py               # Producer: API ISPU → Kafka topic
 │   ├── producer_rss.py               # Producer: RSS feed berita → Kafka topic
 │   ├── consumer_to_hdfs.py           # Consumer: Kafka → HDFS + local copy
 │   └── logs/                         # Log consumer runtime
 │
 ├── spark/                            # Data Processing & Analysis Layer
-│   ├── analysis.ipynb                # Notebook Spark (semua analisis)
+│   ├── analysis.py                   # Script PySpark untuk semua analisis
 │   ├── laporan.md                    # Laporan detail hasil analisis
 │   ├── Hasil.md                      # Ringkasan hasil & kesimpulan
 │   ├── spark_results_schema.md       # Kontrak format JSON (A4 ↔ A5)
@@ -131,12 +131,8 @@ AirQuality-Alert/
 │       └── spark_results.json        # Output analisis Spark
 │
 ├── scripts/                          # Automation Scripts
-│   ├── init-kafka-topics.sh          # Setup topics Kafka + direktori HDFS
-│   ├── run-producers-and-wait-hdfs.sh
-│   ├── run-spark-analysis.sh         # Eksekusi notebook Spark di container
-│   └── run-all.sh                    # Orchestrator end-to-end pipeline
+│   └── scheduler.py                  # Scheduler ingestion + Spark setiap 15 menit
 │
-├── sent_articles.json                # Cache anti-duplikat RSS (gitignored)
 └── README.md
 ```
 
@@ -147,63 +143,74 @@ AirQuality-Alert/
 ### Prasyarat
 
 - Docker & Docker Compose terinstall
-- Python 3.11+ (untuk menjalankan producer di host)
 - Koneksi internet (untuk akses API ISPU & RSS feed)
 
-### Langkah per Langkah
+### Realtime Docker Stack
 
-**1. Jalankan infrastruktur Hadoop:**
+Jalankan seluruh pipeline dengan satu Compose stack:
+
 ```bash
-docker compose -f docker-compose-hadoop.yml up -d
+docker-compose up -d --build
 ```
 
-**2. Jalankan infrastruktur Kafka:**
+Jika Docker Compose di mesin Anda tersedia sebagai plugin Docker baru, perintahnya juga bisa:
+
 ```bash
-docker compose -f docker-compose-kafka.yml up -d
+docker compose up -d --build
 ```
 
-> Verifikasi: `docker ps` — harus ada container `zookeeper`, `kafka-broker`, `kafka-ui`, `namenode`, `datanode`, `consumer`, dsb.
+Jika memakai Colima dan `docker-compose build` bermasalah karena `buildx`, build image runtime dulu lalu jalankan Compose tanpa build:
 
-**3. Inisialisasi Kafka topics dan direktori HDFS:**
 ```bash
-bash scripts/init-kafka-topics.sh
+docker --context colima build -t airquality-runtime:local .
+docker-compose up -d --no-build
 ```
 
-**4. Install dependensi Python (di host):**
+Stack ini menjalankan semua komponen secara bersamaan:
+
+| Service | Fungsi |
+|---|---|
+| `zookeeper`, `kafka-broker`, `kafka-ui` | Infrastruktur Kafka dan monitoring topic |
+| `namenode`, `datanode`, `resourcemanager`, `nodemanager`, `historyserver` | Infrastruktur HDFS/YARN |
+| `consumer` | Consumer Kafka yang terus berjalan dan flush data ke HDFS + `dashboard/data/` |
+| `scheduler` | Menjalankan producer API, producer RSS, lalu Spark analysis setiap 15 menit |
+| `dashboard` | Flask dashboard di `http://localhost:5000` |
+
+Alur realtime terjadwal:
+
+1. Semua service menyala bersama melalui Docker Compose.
+2. `scheduler` memastikan topic Kafka dan direktori HDFS siap.
+3. Setiap 15 menit, `scheduler` mengambil data API ISPU dan RSS, lalu mengirimnya ke Kafka.
+4. `consumer` menerima event Kafka secara terus-menerus dan menyimpan batch ke HDFS serta `dashboard/data/api` dan `dashboard/data/rss`.
+5. Setelah buffer consumer selesai flush, `scheduler` menjalankan script Spark.
+6. Spark membaca data historis dari HDFS, menulis hasil analisis ke HDFS, dan memperbarui `dashboard/data/spark_results.json`.
+7. Dashboard membaca file terbaru dan melakukan refresh data di browser setiap 30 detik.
+
+Port utama:
+
+| URL | Keterangan |
+|---|---|
+| `http://localhost:5000` | Dashboard Flask |
+| `http://localhost:8080` | Kafka UI |
+| `http://localhost:9870` | Hadoop NameNode UI |
+| `http://localhost:8088` | YARN ResourceManager UI |
+
+Melihat log scheduler:
+
 ```bash
-pip install kafka-python requests feedparser pyspark flask
+docker-compose logs -f scheduler
 ```
 
-**5. Jalankan producer (ingestion data):**
+Mengubah interval fetch, misalnya setiap 5 menit:
+
 ```bash
-bash scripts/run-producers-and-wait-hdfs.sh
+PIPELINE_INTERVAL_SECONDS=300 docker-compose up -d --build
 ```
 
-**6. Jalankan analisis Spark:**
-```bash
-bash scripts/run-spark-analysis.sh
-```
-
-**7. Jalankan dashboard:**
-```bash
-cd dashboard && python app.py
-```
-
-Buka `http://localhost:5000` di browser.
-
-### One-Command (End-to-End)
+Menghentikan stack:
 
 ```bash
-# Pastikan Docker Compose Hadoop & Kafka sudah jalan, lalu:
-bash scripts/run-all.sh
-```
-
-Flag opsional untuk skip tahapan tertentu:
-
-```bash
-SKIP_INIT=1       bash scripts/run-all.sh   # Lewati setup topics + HDFS
-SKIP_INGESTION=1  bash scripts/run-all.sh   # Lewati producer
-SKIP_SPARK=1      bash scripts/run-all.sh   # Lewati analisis Spark
+docker-compose down
 ```
 
 ---
@@ -221,20 +228,28 @@ SKIP_SPARK=1      bash scripts/run-all.sh   # Lewati analisis Spark
 **`producer_rss.py`** (Topic: `airquality-rss`)
 - Mengambil berita polusi udara dari 3 sumber RSS: Tempo, Kompas, Detik
 - Sistem anti-duplikat berbasis hash MD5 dari URL artikel
-- Cache persistent ke `sent_articles.json` agar tidak mengirim ulang antar run
+- Cache persistent ke `dashboard/data/sent_articles.json` agar tidak mengirim ulang antar run
 - Payload: `id`, `judul`, `link`, `ringkasan`, `waktu_terbit`, `sumber`
 
-### 2. Kafka Consumer — Penyimpanan HDFS
+### 2. Scheduler — Orkestrasi Realtime
+
+**`scripts/scheduler.py`**
+- Membuat topic Kafka dan direktori HDFS saat service siap
+- Menjalankan `producer_api.py` dan `producer_rss.py` setiap 15 menit
+- Menunggu consumer melakukan flush buffer
+- Menjalankan `spark/analysis.py` untuk memperbarui hasil analisis dashboard
+
+### 3. Kafka Consumer — Penyimpanan HDFS
 
 **`consumer_to_hdfs.py`**
 - Subscribe ke 2 topic (`airquality-api`, `airquality-rss`) secara paralel via threading
-- Buffer mechanism: mengumpulkan data selama 120 detik sebelum flush ke storage
+- Buffer mechanism: mengumpulkan data selama 60 detik sebelum flush ke storage
 - Dual write: menyimpan ke HDFS (`/data/airquality/api/` dan `/data/airquality/rss/`) sekaligus ke lokal (`dashboard/data/`)
 - Berjalan sebagai Docker container dengan akses ke jaringan Kafka dan Hadoop
 
-### 3. Apache Spark — Analisis Data
+### 4. Apache Spark — Analisis Data
 
-**`analysis.ipynb`** — Notebook PySpark yang membaca data dari HDFS dan menjalankan 4 analisis:
+**`analysis.py`** — Script PySpark yang membaca data dari HDFS dan menjalankan 4 analisis:
 
 | Kode | Analisis | Metode |
 |---|---|---|
@@ -245,7 +260,7 @@ SKIP_SPARK=1      bash scripts/run-all.sh   # Lewati analisis Spark
 
 Output disimpan ke `dashboard/data/spark_results.json`. Format lengkap: `spark/spark_results_schema.md`.
 
-### 4. Flask Dashboard — Visualisasi
+### 5. Flask Dashboard — Visualisasi
 
 - **Panel 1:** Pemantauan AQI real-time — tabel kota dengan badge warna kategori
 - **Panel 2:** Berita lingkungan terbaru dari RSS feed

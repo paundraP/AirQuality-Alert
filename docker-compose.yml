@@ -1,0 +1,199 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - airquality-net
+
+  kafka-broker:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-broker
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - airquality-net
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-init
+    depends_on:
+      - kafka-broker
+    command: >
+      bash -c "
+        cub kafka-ready -b kafka-broker:29092 1 60 &&
+        kafka-topics --bootstrap-server kafka-broker:29092 --create --if-not-exists --topic airquality-api --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-broker:29092 --create --if-not-exists --topic airquality-rss --partitions 1 --replication-factor 1
+      "
+    networks:
+      - airquality-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka-broker
+    environment:
+      KAFKA_CLUSTERS_0_NAME: airquality-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-broker:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - airquality-net
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: unless-stopped
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=airquality-cluster
+    env_file:
+      - ./hadoop.env
+    networks:
+      - airquality-net
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    restart: unless-stopped
+    ports:
+      - "9864:9864"
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - airquality-net
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    container_name: resourcemanager
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - airquality-net
+
+  nodemanager:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: nodemanager
+    restart: unless-stopped
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+    networks:
+      - airquality-net
+
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
+    container_name: historyserver
+    restart: unless-stopped
+    ports:
+      - "8188:8188"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+    volumes:
+      - hadoop_historyserver:/hadoop/yarn/timeline
+    networks:
+      - airquality-net
+
+  consumer:
+    image: airquality-runtime:local
+    build: .
+    container_name: consumer
+    restart: unless-stopped
+    depends_on:
+      - kafka-init
+      - namenode
+      - datanode
+    environment:
+      KAFKA_BROKER: kafka-broker:29092
+      HDFS_URL: http://namenode:9870
+      HDFS_USER: root
+      BUFFER_TIME: "60"
+    volumes:
+      - ./dashboard/data:/app/dashboard/data
+    command: ["python3", "kafka/consumer_to_hdfs.py"]
+    networks:
+      - airquality-net
+
+  scheduler:
+    image: airquality-runtime:local
+    build: .
+    container_name: scheduler
+    restart: unless-stopped
+    depends_on:
+      - consumer
+    environment:
+      KAFKA_BROKER: kafka-broker:29092
+      HDFS_URL: http://namenode:9870
+      HDFS_USER: root
+      PIPELINE_INTERVAL_SECONDS: ${PIPELINE_INTERVAL_SECONDS:-900}
+      CONSUMER_FLUSH_WAIT_SECONDS: ${CONSUMER_FLUSH_WAIT_SECONDS:-75}
+      SENT_ARTICLES_FILE: /app/dashboard/data/sent_articles.json
+    volumes:
+      - ./dashboard/data:/app/dashboard/data
+      - ./spark:/app/spark
+      - ./logs:/app/logs
+    command: ["python3", "scripts/scheduler.py"]
+    networks:
+      - airquality-net
+
+  dashboard:
+    image: airquality-runtime:local
+    build: .
+    container_name: dashboard
+    restart: unless-stopped
+    depends_on:
+      - scheduler
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./dashboard/data:/app/dashboard/data
+    command: ["python3", "dashboard/app.py"]
+    networks:
+      - airquality-net
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+  hadoop_historyserver:
+
+networks:
+  airquality-net:
+    driver: bridge

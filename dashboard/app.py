@@ -15,43 +15,109 @@ def load_json(filename):
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
+def load_latest_batch(dirname):
+    directory = os.path.join(DATA_DIR, dirname)
+    if not os.path.exists(directory):
+        return []
+
+    files = [
+        f for f in os.listdir(directory)
+        if f.startswith('data_') and f.endswith('.json')
+    ]
+    if not files:
+        return []
+
+    files.sort(reverse=True)
+    try:
+        with open(os.path.join(directory, files[0]), 'r') as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+def normalize_live_api(rows):
+    normalized = []
+    for row in rows:
+        city = row.get('city') or row.get('kota') or row.get('id_stasiun') or ''
+        category = row.get('category') or row.get('kategori') or ''
+        normalized.append({
+            'city': str(city).title(),
+            'aqi': row.get('aqi'),
+            'category': category,
+            'timestamp': row.get('timestamp') or row.get('ingested_at') or '',
+            'pm25': row.get('pm25')
+        })
+
+    normalized.sort(key=lambda item: item.get('aqi') or 0, reverse=True)
+    return normalized
+
+def normalize_live_rss(rows):
+    return [{
+        'title': item.get('title') or item.get('judul', ''),
+        'link': item.get('link', ''),
+        'published': item.get('published') or item.get('waktu_terbit', ''),
+        'summary': item.get('summary') or item.get('ringkasan', '')
+    } for item in rows]
+
+def enrich_spark_results(results):
+    if not isinstance(results, dict):
+        return {}
+
+    enriched = dict(results)
+
+    if 'worst_cities' not in enriched and isinstance(results.get('ranking_kota'), list):
+        enriched['worst_cities'] = [{
+            'rank': item.get('peringkat') or item.get('rank'),
+            'city': str(item.get('kota') or item.get('city') or '').title(),
+            'avg_aqi': item.get('avg_aqi')
+        } for item in results['ranking_kota']]
+
+    if 'aqi_distribution' not in enriched and isinstance(results.get('distribusi_kategori'), list):
+        by_city = {}
+        for item in results['distribusi_kategori']:
+            city = str(item.get('kota') or item.get('city') or '').title()
+            category = str(item.get('kategori') or item.get('category') or '').lower().replace(' ', '_')
+            count = int(item.get('jumlah_data') or item.get('count') or item.get('total') or item.get('persentase') or 0)
+            if not city:
+                continue
+            bucket = by_city.setdefault(city, {
+                'city': city,
+                'baik': 0,
+                'sedang': 0,
+                'tidak_sehat': 0,
+                'berbahaya': 0
+            })
+            if 'tidak' in category and 'sehat' in category:
+                bucket['tidak_sehat'] += count
+            elif 'berbahaya' in category:
+                bucket['berbahaya'] += count
+            elif 'sedang' in category:
+                bucket['sedang'] += count
+            else:
+                bucket['baik'] += count
+        enriched['aqi_distribution'] = list(by_city.values())
+
+    return enriched
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/api/data')
 def get_data():
-    spark_results = load_json('spark_results.json')
-    if isinstance(spark_results, list) and not spark_results:
-        spark_results = {}
-        
-    live_rss = []
-    rss_dir = os.path.join(DATA_DIR, 'rss')
-    if os.path.exists(rss_dir):
-        files = [f for f in os.listdir(rss_dir) if f.startswith('data_') and f.endswith('.json')]
-        if files:
-            files.sort(reverse=True)
-            latest_file = files[0]
-            try:
-                with open(os.path.join(rss_dir, latest_file), 'r') as f:
-                    raw_rss = json.load(f)
-                    for item in raw_rss:
-                        live_rss.append({
-                            'title': item.get('judul', ''),
-                            'link': item.get('link', ''),
-                            'published': item.get('waktu_terbit', ''),
-                            'summary': item.get('ringkasan', '')
-                        })
-            except Exception as e:
-                print(f"Error loading RSS: {e}")
-                pass
-                
+    spark_results = enrich_spark_results(load_json('spark_results.json'))
+
+    live_api = normalize_live_api(load_latest_batch('api'))
+    if not live_api:
+        live_api = normalize_live_api(load_json('live_api.json'))
+
+    live_rss = normalize_live_rss(load_latest_batch('rss'))
     if not live_rss:
-        live_rss = load_json('live_rss.json')
+        live_rss = normalize_live_rss(load_json('live_rss.json'))
 
     return jsonify({
         'spark_results': spark_results,
-        'live_api': load_json('live_api.json'),
+        'live_api': live_api,
         'live_rss': live_rss
     })
 

@@ -74,7 +74,7 @@ Pipeline Big Data untuk memantau Air Quality Index (AQI) kota-kota di Jawa Timur
           │                     │
           ▼                     ▼
  ┌──────────────────┐  ┌────────────────────┐
- │ spark_results    │──│ localhost:5000     │
+ │ spark_results    │──│ localhost:5001     │
  │ .json            │  │ Dashboard Web UI   │
  └──────────────────┘  └────────────────────┘
 ```
@@ -103,10 +103,10 @@ Pipeline Big Data untuk memantau Air Quality Index (AQI) kota-kota di Jawa Timur
 
 ```
 AirQuality-Alert/
-├── docker-compose.yml                # Stack realtime: Kafka + HDFS + scheduler + dashboard
+├── docker-compose.yml                # Stack realtime: Kafka + HDFS + Spark (local) + dashboard
 ├── Dockerfile                        # Runtime Python untuk consumer, scheduler, dashboard
 ├── requirements.txt                  # Dependensi Python container
-├── hadoop.env                        # Konfigurasi environment Hadoop
+├── hadoop.env                        # Konfigurasi environment Hadoop (HDFS saja)
 │
 ├── kafka/                            # Data Ingestion Layer
 │   ├── producer_api.py               # Producer: API ISPU → Kafka topic
@@ -122,9 +122,9 @@ AirQuality-Alert/
 │   └── spark_results.example.json   # Contoh output untuk testing
 │
 ├── dashboard/                        # Presentation Layer
-│   ├── app.py                        # Flask server (port 5000)
+│   ├── app.py                        # Flask server (port 5001)
 │   ├── templates/index.html          # Dashboard UI (dark mode)
-│   ├── static/style.css              # Styling (glassmorphism)
+│   ├── static/style.css              # Styling (dark mode, minimalis)
 │   └── data/                         # Data auto-generated (gitignored)
 │       ├── api/                      # Live AQI data
 │       ├── rss/                      # Berita lingkungan
@@ -171,10 +171,12 @@ Stack ini menjalankan semua komponen secara bersamaan:
 | Service | Fungsi |
 |---|---|
 | `zookeeper`, `kafka-broker`, `kafka-ui` | Infrastruktur Kafka dan monitoring topic |
-| `namenode`, `datanode`, `resourcemanager`, `nodemanager`, `historyserver` | Infrastruktur HDFS/YARN |
+| `namenode`, `datanode` | Infrastruktur HDFS (Hadoop Distributed File System) |
 | `consumer` | Consumer Kafka yang terus berjalan dan flush data ke HDFS + `dashboard/data/` |
 | `scheduler` | Menjalankan producer API, producer RSS, lalu Spark analysis setiap 15 menit |
-| `dashboard` | Flask dashboard di `http://localhost:5000` |
+| `dashboard` | Flask dashboard di `http://localhost:5001` |
+
+> **Catatan:** Spark berjalan dalam mode `local[*]` (bukan di atas YARN) sehingga komponen ResourceManager, NodeManager, dan HistoryServer tidak diperlukan. Pendekatan ini menghemat memori dan mempercepat startup, cocok untuk pengembangan lokal dan demonstrasi proyek.
 
 Alur realtime terjadwal:
 
@@ -190,10 +192,9 @@ Port utama:
 
 | URL | Keterangan |
 |---|---|
-| `http://localhost:5000` | Dashboard Flask |
+| `http://localhost:5001` | Dashboard Flask |
 | `http://localhost:8080` | Kafka UI |
 | `http://localhost:9870` | Hadoop NameNode UI |
-| `http://localhost:8088` | YARN ResourceManager UI |
 
 Melihat log scheduler:
 
@@ -249,7 +250,7 @@ docker-compose down
 
 ### 4. Apache Spark — Analisis Data
 
-**`analysis.py`** — Script PySpark yang membaca data dari HDFS dan menjalankan 4 analisis:
+**`analysis.py`** — Script PySpark yang berjalan dalam mode `local[*]` (menggunakan semua core CPU yang tersedia) dan membaca data dari HDFS untuk menjalankan 4 analisis:
 
 | Kode | Analisis | Metode |
 |---|---|---|
@@ -262,10 +263,11 @@ Output disimpan ke `dashboard/data/spark_results.json`. Format lengkap: `spark/s
 
 ### 5. Flask Dashboard — Visualisasi
 
-- **Panel 1:** Pemantauan AQI real-time — tabel kota dengan badge warna kategori
-- **Panel 2:** Berita lingkungan terbaru dari RSS feed
-- **Panel 3:** Hasil analisis Spark — ranking kota terburuk + distribusi kategori (progress bar visual)
-- **Desain:** Dark mode, glassmorphism, Google Fonts (Inter), animasi pulse, responsive grid 12 kolom
+- **Panel 1:** Peta interaktif Leaflet — marker warna AQI per kota di Jawa Timur
+- **Panel 2:** Pemantauan AQI real-time — 10 stasiun dengan badge kategori dan waktu pembaruan relatif
+- **Panel 3:** Berita lingkungan terbaru dari RSS feed (deduplicate otomatis)
+- **Panel 4:** Hasil analisis Spark — ranking kota terburuk (horizontal bar chart) + distribusi kategori (progress bar)
+- **Desain:** Dark mode, minimalis, Google Fonts (Inter), responsive grid 12 kolom
 - **Auto-refresh:** data diperbarui setiap 30 detik via `fetch('/api/data')`
 
 ---
@@ -373,10 +375,10 @@ Temuan utama: Probolinggo, Madiun, dan Surabaya adalah 3 kota teratas dan kandid
 |:---:|---|---|
 | 9870 | HDFS NameNode Web UI | http://localhost:9870 |
 | 9000 | HDFS RPC | — |
-| 8088 | YARN ResourceManager | http://localhost:8088 |
 | 9092 | Kafka Broker | — |
+| 29092 | Kafka Broker (internal) | — |
 | 8080 | Kafka UI | http://localhost:8080 |
-| 5000 | Flask Dashboard | http://localhost:5000 |
+| 5001 | Flask Dashboard | http://localhost:5001 |
 
 ---
 

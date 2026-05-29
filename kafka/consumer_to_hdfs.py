@@ -81,7 +81,7 @@ def save_buffer():
                 hdfs_file = f"{HDFS_PATHS[topic]}/{filename}"
                 try:
                     client.makedirs(HDFS_PATHS[topic])
-                    with client.write(hdfs_file, encoding='utf-8') as writer:
+                    with client.write(hdfs_file, encoding='utf-8') as writer: # pyright: ignore[reportOptionalContextManager]
                         json.dump(data_to_save, writer, indent=4)
                     print(f"[HDFS] Uploaded: {hdfs_file}")
                 except Exception as e:

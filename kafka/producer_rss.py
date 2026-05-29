@@ -17,7 +17,6 @@ RSS_SOURCES = {
     "detik":  "https://news.google.com/rss/search?q=polusi+udara+detik&hl=id&gl=ID&ceid=ID:id",
 }
 
-# ✅ Load sent_articles dari file agar persist antar run
 def load_sent_articles():
     if os.path.exists(SENT_ARTICLES_FILE):
         with open(SENT_ARTICLES_FILE, 'r') as f:
@@ -58,7 +57,7 @@ def fetch_rss_news():
                 continue
 
             for entry in feed.entries[:8]:
-                article_id = hashlib.md5(entry.link.encode()).hexdigest()[:8]
+                article_id = hashlib.md5(entry.link.encode()).hexdigest()[:8] # pyright: ignore[reportAttributeAccessIssue]
 
                 if article_id in sent_articles:
                     print(f"  [SKIP] Duplikat: {article_id} | {entry.title[:50]}...")
@@ -68,7 +67,7 @@ def fetch_rss_news():
                     "id": article_id,
                     "judul": entry.title,
                     "link": entry.link,
-                    "ringkasan": entry.get('summary', entry.title)[:200],
+                    "ringkasan": entry.get('summary', entry.title)[:200], # pyright: ignore[reportOptionalSubscript]
                     "waktu_terbit": entry.get('published', datetime.now().isoformat()),
                     "sumber": sumber,
                     "timestamp_ingested": datetime.now().isoformat()

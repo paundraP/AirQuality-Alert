@@ -35,7 +35,14 @@ WIB = timezone(timedelta(hours=7))
 
 
 def create_spark_session():
-    return SparkSession.builder.appName("Analisis_AQI_Jatim").getOrCreate()
+    return (
+        SparkSession.builder
+        .master("local[*]")
+        .appName("Analisis_AQI_Jatim")
+        .config("spark.driver.memory", "512m")
+        .config("spark.driver.bindAddress", "0.0.0.0")
+        .getOrCreate()
+    )
 
 
 def load_api_data(spark):

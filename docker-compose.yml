@@ -8,6 +8,11 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
     networks:
       - airquality-net
 
@@ -30,6 +35,17 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: "-Xmx384m -Xms384m"
+      KAFKA_LOG_RETENTION_HOURS: "24"
+      KAFKA_LOG_RETENTION_BYTES: "104857600"
+      KAFKA_NUM_IO_THREADS: "2"
+      KAFKA_NUM_NETWORK_THREADS: "2"
+      KAFKA_LOG_SEGMENT_BYTES: "10485760"
+      KAFKA_LOG_CLEANUP_POLICY: "delete"
+    deploy:
+      resources:
+        limits:
+          memory: 768m
     networks:
       - airquality-net
 
@@ -44,6 +60,10 @@ services:
         kafka-topics --bootstrap-server kafka-broker:29092 --create --if-not-exists --topic airquality-api --partitions 1 --replication-factor 1 &&
         kafka-topics --bootstrap-server kafka-broker:29092 --create --if-not-exists --topic airquality-rss --partitions 1 --replication-factor 1
       "
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     networks:
       - airquality-net
 
@@ -59,6 +79,11 @@ services:
       KAFKA_CLUSTERS_0_NAME: airquality-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-broker:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      JAVA_OPTS: "-Xmx256m"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
     networks:
       - airquality-net
 
@@ -72,9 +97,13 @@ services:
     volumes:
       - hadoop_namenode:/hadoop/dfs/name
     environment:
-      - CLUSTER_NAME=airquality-cluster
+      CLUSTER_NAME: airquality-cluster
     env_file:
       - ./hadoop.env
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - airquality-net
 
@@ -90,45 +119,10 @@ services:
       SERVICE_PRECONDITION: "namenode:9870"
     env_file:
       - ./hadoop.env
-    networks:
-      - airquality-net
-
-  resourcemanager:
-    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
-    container_name: resourcemanager
-    restart: unless-stopped
-    ports:
-      - "8088:8088"
-    environment:
-      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864"
-    env_file:
-      - ./hadoop.env
-    networks:
-      - airquality-net
-
-  nodemanager:
-    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
-    container_name: nodemanager
-    restart: unless-stopped
-    environment:
-      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
-    env_file:
-      - ./hadoop.env
-    networks:
-      - airquality-net
-
-  historyserver:
-    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
-    container_name: historyserver
-    restart: unless-stopped
-    ports:
-      - "8188:8188"
-    environment:
-      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
-    env_file:
-      - ./hadoop.env
-    volumes:
-      - hadoop_historyserver:/hadoop/yarn/timeline
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - airquality-net
 
@@ -149,6 +143,10 @@ services:
     volumes:
       - ./dashboard/data:/app/dashboard/data
     command: ["python3", "kafka/consumer_to_hdfs.py"]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - airquality-net
 
@@ -171,28 +169,37 @@ services:
       - ./spark:/app/spark
       - ./logs:/app/logs
     command: ["python3", "scripts/scheduler.py"]
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - airquality-net
 
   dashboard:
     image: airquality-runtime:local
-    build: .
     container_name: dashboard
     restart: unless-stopped
     depends_on:
       - scheduler
     ports:
-      - "5000:5000"
+      - "5001:5000"
     volumes:
       - ./dashboard/data:/app/dashboard/data
+      - ./dashboard/templates:/app/dashboard/templates
+      - ./dashboard/static:/app/dashboard/static
+      - ./dashboard/app.py:/app/dashboard/app.py
     command: ["python3", "dashboard/app.py"]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - airquality-net
 
 volumes:
   hadoop_namenode:
   hadoop_datanode:
-  hadoop_historyserver:
 
 networks:
   airquality-net:

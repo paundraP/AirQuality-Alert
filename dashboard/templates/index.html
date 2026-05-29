@@ -3,119 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AirQuality Alert | Jawa Timur</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <title>AirQuality Jatim</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header>
-        <h1>AirQuality Alert Jatim</h1>
+        <h1>AirQuality Jatim</h1>
         <div class="last-updated">
             <div class="status-dot"></div>
-            <span>Live System Active</span>
-            <span id="update-time" style="margin-left: 10px; color: #64748b;">Loading...</span>
+            <span id="update-time">Memuat...</span>
         </div>
     </header>
 
-    <!-- NEW: Summary Cards -->
     <div class="summary-cards">
         <div class="stat-card-new">
-            <div class="stat-title">Rata-rata AQI Jatim</div>
+            <div class="stat-title">Rata-rata AQI</div>
             <div class="stat-value-large" id="stat-avg-aqi">--</div>
         </div>
         <div class="stat-card-new">
-            <div class="stat-title">Kota Terburuk Saat Ini</div>
-            <div class="stat-value-large" id="stat-worst-city" style="color: #f59e0b;">--</div>
+            <div class="stat-title">Kota Terburuk</div>
+            <div class="stat-value-large" id="stat-worst-city">--</div>
         </div>
         <div class="stat-card-new">
-            <div class="stat-title">Status Sistem</div>
-            <div class="stat-value-large" id="stat-system-status" style="color: #10b981;">AMAN</div>
+            <div class="stat-title">Status</div>
+            <div class="stat-value-large" id="stat-system-status">--</div>
         </div>
     </div>
 
     <div class="dashboard-grid">
-        
-        <!-- Map Hero Section -->
-        <div class="panel col-span-12" style="padding: 0; overflow: hidden; border: 1px solid var(--border-color);">
+        <div class="panel col-span-12" style="padding: 0; overflow: hidden;">
             <div id="map"></div>
         </div>
 
-        <!-- Panel 1: Live API Data -->
         <div class="panel col-span-8">
-            <h2 class="panel-title">
-                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                Pemantauan Kualitas Udara Real-time (AQI)
-            </h2>
+            <h2 class="panel-title">Data Kualitas Udara Real-time</h2>
             <div style="overflow-x: auto;">
                 <table>
                     <thead>
                         <tr>
                             <th>Kota</th>
-                            <th>Nilai AQI</th>
+                            <th>AQI</th>
                             <th>Kategori</th>
-                            <th>Waktu Pembaruan</th>
+                            <th>Waktu</th>
                         </tr>
                     </thead>
-                    <tbody id="live-api-body">
-                        <!-- Data will be injected here -->
-                    </tbody>
+                    <tbody id="live-api-body"></tbody>
                 </table>
             </div>
         </div>
 
-        <!-- Panel 2: Live RSS -->
         <div class="panel col-span-4">
-            <h2 class="panel-title">
-                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1m2 13a2 2 0 0 1-2-2V7m2 13a2 2 0 0 0 2-2V9.5a2.5 2.5 0 0 0-2.5-2.5H15"></path></svg>
-                Berita Lingkungan Terbaru
-            </h2>
-            <div class="news-list" id="live-rss-body">
-                <!-- Data will be injected here -->
-            </div>
+            <h2 class="panel-title">Berita Lingkungan</h2>
+            <div class="news-list" id="live-rss-body"></div>
         </div>
 
-        <!-- Panel 3: Spark Analysis Results -->
         <div class="panel col-span-12">
-            <h2 class="panel-title" style="color: #a78bfa;">
-                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"></path></svg>
-                Hasil Analisis Apache Spark (Historical Insights)
-            </h2>
-            
-            <div class="dashboard-grid" style="margin-top: 1rem;">
-
-                <!-- Spark: Worst Cities Chart -->
-                <div class="panel col-span-6" style="background: rgba(0,0,0,0.2);">
-                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem;">Ranking Kota AQI Terburuk</h3>
+            <h2 class="panel-title">Analisis Apache Spark</h2>
+            <div class="dashboard-grid" style="margin-top: 0.5rem;">
+                <div class="panel col-span-6" style="background: var(--bg-color); border: 1px solid var(--border-color);">
+                    <h3>Ranking Kota (AQI Tertinggi)</h3>
                     <div class="chart-container">
                         <canvas id="rankingChart"></canvas>
                     </div>
                 </div>
-
-                <!-- Spark: AQI Distribution -->
-                <div class="panel col-span-6" style="background: rgba(0,0,0,0.2);">
-                    <h3 style="font-size: 1.1rem; margin-bottom: 1rem;">Distribusi Kategori AQI per Kota</h3>
+                <div class="panel col-span-6" style="background: var(--bg-color); border: 1px solid var(--border-color);">
+                    <h3>Distribusi Kategori per Kota</h3>
                     <table>
                         <thead>
                             <tr>
                                 <th>Kota</th>
-                                <th style="width: 50%;">Distribusi (Baik - Sedang - Tidak Sehat)</th>
-                                <th>Total Event</th>
+                                <th style="width: 50%;">Distribusi</th>
+                                <th>Total</th>
                             </tr>
                         </thead>
-                        <tbody id="spark-dist-body">
-                        </tbody>
+                        <tbody id="spark-dist-body"></tbody>
                     </table>
                 </div>
-
             </div>
         </div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
     <script>
         const cityCoordinates = {
             'Surabaya': [-7.250445, 112.768845],
@@ -132,65 +103,86 @@
             'Probolinggo': [-7.7569, 113.2115]
         };
 
+        const idMonthMap = {
+            'Januari': '01', 'Februari': '02', 'Maret': '03', 'April': '04',
+            'Mei': '05', 'Juni': '06', 'Juli': '07', 'Agustus': '08',
+            'September': '09', 'Oktober': '10', 'November': '11', 'Desember': '12'
+        };
+
         let map, markersLayer, rankingChart;
+
+        function parseIdDate(str) {
+            if (!str) return null;
+            const months = idMonthMap;
+            const m = str.match(/(\d{1,2})-(\w+)-(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+            if (m) {
+                const mon = months[m[2]] || '01';
+                return new Date(`${m[3]}-${mon}-${m[1].padStart(2,'0')}T${m[4]}`);
+            }
+            return null;
+        }
+
+        function formatTimeAgo(date) {
+            if (!date || isNaN(date.getTime())) return '--';
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'Baru saja';
+            if (diffMin < 60) return `${diffMin} menit lalu`;
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr < 24) return `${diffHr} jam lalu`;
+            return `${Math.floor(diffHr / 24)} hari lalu`;
+        }
+
+        function toNum(val) {
+            const n = parseFloat(val);
+            return isNaN(n) ? 0 : n;
+        }
 
         function initMap() {
             map = L.map('map').setView([-7.7, 112.7], 8);
-            
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
                 subdomains: 'abcd',
                 maxZoom: 20
             }).addTo(map);
-
             markersLayer = L.layerGroup().addTo(map);
         }
 
         function getAqiColor(aqi) {
-            if (aqi <= 50) return '#10b981'; // Green
-            if (aqi <= 100) return '#f59e0b'; // Yellow
-            if (aqi <= 150) return '#ef4444'; // Red
-            return '#7f1d1d'; // Dark Red
+            if (aqi <= 50) return '#22c55e';
+            if (aqi <= 100) return '#eab308';
+            if (aqi <= 150) return '#ef4444';
+            return '#991b1b';
         }
 
         function updateMapMarkers(apiData) {
             markersLayer.clearLayers();
-
             apiData.forEach(item => {
                 const coords = cityCoordinates[item.city];
-                if (coords) {
-                    const color = getAqiColor(item.aqi);
-                    // Add pulsing effect if AQI > 100
-                    const pulseStyle = item.aqi > 100 ? `animation: emergency-pulse 2s infinite;` : '';
-                    
-                    const customIcon = L.divIcon({
-                        className: 'custom-div-icon',
-                        html: `<div style="background-color: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px ${color}; ${pulseStyle}"></div>`,
-                        iconSize: [16, 16],
-                        iconAnchor: [8, 8]
-                    });
-
-                    const marker = L.marker(coords, { icon: customIcon });
-                    
-                    const popupContent = `
-                        <div style="font-family: 'Inter', sans-serif;">
-                            <h3 style="margin:0 0 5px 0; color:var(--text-primary);">${item.city}</h3>
-                            <p style="margin:0; font-size:14px; color:var(--text-secondary);">AQI: <strong style="color:${color}; font-size:16px;">${item.aqi}</strong></p>
-                            <p style="margin:0; font-size:12px; color:var(--text-secondary);">Kategori: ${item.category}</p>
-                        </div>
-                    `;
-                    
-                    marker.bindPopup(popupContent);
-                    markersLayer.addLayer(marker);
-                }
+                if (!coords) return;
+                const aqi = toNum(item.aqi);
+                const color = getAqiColor(aqi);
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="background:${color}; width:12px; height:12px; border-radius:50%; border:2px solid #fff;"></div>`,
+                    iconSize: [12, 12],
+                    iconAnchor: [6, 6]
+                });
+                const marker = L.marker(coords, { icon });
+                marker.bindPopup(
+                    `<strong>${item.city}</strong><br>AQI: <strong style="color:${color}">${aqi}</strong><br>${item.category || ''}`
+                );
+                markersLayer.addLayer(marker);
             });
         }
 
         function initChart() {
             const ctx = document.getElementById('rankingChart').getContext('2d');
-            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.color = '#71717a';
             Chart.defaults.font.family = "'Inter', sans-serif";
-            
+            Chart.defaults.font.size = 11;
+
             rankingChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -199,61 +191,46 @@
                         label: 'Rata-rata AQI',
                         data: [],
                         backgroundColor: [],
-                        borderRadius: 4,
+                        borderRadius: 3,
+                        barThickness: 20,
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    indexAxis: 'y',
                     scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.05)'
-                            }
-                        },
                         x: {
-                            grid: {
-                                display: false
-                            }
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            ticks: { font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { font: { size: 11 } }
                         }
                     },
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    }
+                    plugins: { legend: { display: false } }
                 }
             });
         }
 
         function updateChart(worstCitiesData) {
-            const labels = [];
-            const data = [];
-            const bgColors = [];
-
             worstCitiesData.sort((a, b) => b.avg_aqi - a.avg_aqi);
-            const topCities = worstCitiesData.slice(0, 7);
-
-            topCities.forEach(item => {
-                labels.push(item.city);
-                data.push(item.avg_aqi);
-                bgColors.push(getAqiColor(item.avg_aqi));
-            });
-
-            rankingChart.data.labels = labels;
-            rankingChart.data.datasets[0].data = data;
-            rankingChart.data.datasets[0].backgroundColor = bgColors;
+            const top = worstCitiesData.slice(0, 8);
+            rankingChart.data.labels = top.map(i => i.city);
+            rankingChart.data.datasets[0].data = top.map(i => toNum(i.avg_aqi));
+            rankingChart.data.datasets[0].backgroundColor = top.map(i => getAqiColor(toNum(i.avg_aqi)));
             rankingChart.update();
         }
 
         function getBadgeClass(category) {
             if (!category) return 'badge-moderate';
-            category = category.toLowerCase();
-            if (category.includes('baik')) return 'badge-good';
-            if (category.includes('sedang')) return 'badge-moderate';
-            if (category.includes('tidak sehat')) return 'badge-unhealthy';
-            if (category.includes('berbahaya')) return 'badge-hazardous';
+            const c = category.toLowerCase();
+            if (c.includes('baik')) return 'badge-good';
+            if (c.includes('sedang')) return 'badge-moderate';
+            if (c.includes('tidak sehat')) return 'badge-unhealthy';
+            if (c.includes('berbahaya')) return 'badge-hazardous';
             return 'badge-moderate';
         }
 
@@ -261,72 +238,50 @@
             try {
                 const response = await fetch('/api/data');
                 const data = await response.json();
-                
-                // Update timestamp
-                const now = new Date();
-                document.getElementById('update-time').innerText = `Terakhir diperbarui: ${now.toLocaleTimeString()}`;
 
-                // Calculate Summary Stats
+                document.getElementById('update-time').textContent =
+                    'Diperbarui: ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
                 if (data.live_api && data.live_api.length > 0) {
                     let totalAqi = 0;
-                    let worstCity = '';
+                    let worstCity = '--';
                     let maxAqi = -1;
-                    let hasAlert = false;
 
                     data.live_api.forEach(item => {
-                        totalAqi += item.aqi;
-                        if (item.aqi > maxAqi) {
-                            maxAqi = item.aqi;
-                            worstCity = item.city;
-                        }
-                        if (item.aqi > 100) {
-                            hasAlert = true;
-                        }
+                        const aqi = toNum(item.aqi);
+                        totalAqi += aqi;
+                        if (aqi > maxAqi) { maxAqi = aqi; worstCity = item.city; }
                     });
 
                     const avgAqi = (totalAqi / data.live_api.length).toFixed(1);
-                    document.getElementById('stat-avg-aqi').innerText = avgAqi;
-                    document.getElementById('stat-worst-city').innerText = worstCity;
+                    document.getElementById('stat-avg-aqi').textContent = avgAqi;
+                    document.getElementById('stat-avg-aqi').style.color = getAqiColor(parseFloat(avgAqi));
+                    document.getElementById('stat-worst-city').textContent = worstCity;
                     document.getElementById('stat-worst-city').style.color = getAqiColor(maxAqi);
-                    
+
+                    const hasAlert = data.live_api.some(item => toNum(item.aqi) > 100);
                     const statusEl = document.getElementById('stat-system-status');
-                    if (hasAlert) {
-                        statusEl.innerText = 'WASPADA';
-                        statusEl.style.color = '#ef4444';
-                        document.getElementById('stat-avg-aqi').style.color = '#ef4444';
-                    } else {
-                        statusEl.innerText = 'AMAN';
-                        statusEl.style.color = '#10b981';
-                        document.getElementById('stat-avg-aqi').style.color = 'var(--text-primary)';
-                    }
-                }
+                    statusEl.textContent = hasAlert ? 'WASPADA' : 'AMAN';
+                    statusEl.style.color = hasAlert ? 'var(--aqi-unhealthy)' : 'var(--aqi-good)';
 
-                // Update Live API & Map
-                const apiBody = document.getElementById('live-api-body');
-                apiBody.innerHTML = '';
-                if (data.live_api && data.live_api.length > 0) {
-                    updateMapMarkers(data.live_api);
-                    
+                    try { updateMapMarkers(data.live_api); } catch(e) { console.warn('Map update:', e); }
+
+                    const apiBody = document.getElementById('live-api-body');
+                    apiBody.innerHTML = '';
                     data.live_api.forEach(item => {
+                        const aqi = toNum(item.aqi);
                         const tr = document.createElement('tr');
-                        // Add visual alert logic if AQI > 100
-                        if (item.aqi > 100) {
-                            tr.classList.add('row-alert');
-                        }
-
+                        const date = parseIdDate(item.timestamp);
                         tr.innerHTML = `
-                            <td style="font-weight: 600;">${item.city}</td>
-                            <td><span style="font-weight: 700; color: ${getAqiColor(item.aqi)};">${item.aqi}</span></td>
-                            <td><span class="badge ${getBadgeClass(item.category)}">${item.category}</span></td>
-                            <td style="color: var(--text-secondary); font-size: 0.875rem;">${new Date(item.timestamp).toLocaleString('id-ID')}</td>
+                            <td style="font-weight:500">${item.city}</td>
+                            <td style="font-weight:600; color:${getAqiColor(aqi)}">${aqi}</td>
+                            <td><span class="badge ${getBadgeClass(item.category)}">${item.category || '--'}</span></td>
+                            <td style="color:var(--text-secondary);font-size:0.8rem">${formatTimeAgo(date)}</td>
                         `;
                         apiBody.appendChild(tr);
                     });
-                } else {
-                    apiBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Tidak ada data API tersedia.</td></tr>';
                 }
 
-                // Update Live RSS
                 const rssBody = document.getElementById('live-rss-body');
                 rssBody.innerHTML = '';
                 if (data.live_rss && data.live_rss.length > 0) {
@@ -335,48 +290,40 @@
                         div.className = 'news-item';
                         div.innerHTML = `
                             <a href="${item.link}" target="_blank" class="news-title">${item.title}</a>
-                            <div class="news-meta">${new Date(item.published).toLocaleString('id-ID')}</div>
-                            ${item.summary ? `<div class="news-summary">${item.summary.substring(0, 100)}...</div>` : ''}
+                            <div class="news-meta">${item.published || ''}</div>
+                            ${item.summary ? `<div class="news-summary">${item.summary.substring(0, 120)}...</div>` : ''}
                         `;
                         rssBody.appendChild(div);
                     });
-                } else {
-                    rssBody.innerHTML = '<div style="text-align: center; color: var(--text-secondary);">Tidak ada berita tersedia.</div>';
                 }
 
-                // Update Spark Data (Chart and Distribution)
                 if (data.spark_results) {
-                    if (data.spark_results.worst_cities) {
-                        updateChart(data.spark_results.worst_cities);
-                    }
+                    if (data.spark_results.worst_cities) try { updateChart(data.spark_results.worst_cities); } catch(e) { console.warn('Chart update:', e); }
 
                     const distBody = document.getElementById('spark-dist-body');
                     distBody.innerHTML = '';
                     if (data.spark_results.aqi_distribution) {
-                        const displayDist = data.spark_results.aqi_distribution.slice(0, 7);
-                        displayDist.forEach(item => {
+                        data.spark_results.aqi_distribution.slice(0, 8).forEach(item => {
                             const total = item.baik + item.sedang + item.tidak_sehat + item.berbahaya;
-                            if (total > 0) {
-                                const pBaik = (item.baik / total) * 100;
-                                const pSedang = (item.sedang / total) * 100;
-                                const pTidakSehat = (item.tidak_sehat / total) * 100;
-                                const pBerbahaya = (item.berbahaya / total) * 100;
-
-                                const tr = document.createElement('tr');
-                                tr.innerHTML = `
-                                    <td style="font-weight: 600;">${item.city}</td>
-                                    <td>
-                                        <div class="progress-bar-container">
-                                            <div class="progress-segment" style="width: ${pBaik}%; background-color: #10b981;" title="Baik: ${item.baik}"></div>
-                                            <div class="progress-segment" style="width: ${pSedang}%; background-color: #f59e0b;" title="Sedang: ${item.sedang}"></div>
-                                            <div class="progress-segment" style="width: ${pTidakSehat}%; background-color: #ef4444;" title="Tidak Sehat: ${item.tidak_sehat}"></div>
-                                            <div class="progress-segment" style="width: ${pBerbahaya}%; background-color: #7f1d1d;" title="Berbahaya: ${item.berbahaya}"></div>
-                                        </div>
-                                    </td>
-                                    <td>${total} ev</td>
-                                `;
-                                distBody.appendChild(tr);
-                            }
+                            if (total <= 0) return;
+                            const pB = (item.baik / total) * 100;
+                            const pS = (item.sedang / total) * 100;
+                            const pT = (item.tidak_sehat / total) * 100;
+                            const pX = (item.berbahaya / total) * 100;
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td style="font-weight:500">${item.city}</td>
+                                <td>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-segment" style="width:${pB}%;background:var(--aqi-good)" title="Baik: ${item.baik}"></div>
+                                        <div class="progress-segment" style="width:${pS}%;background:var(--aqi-moderate)" title="Sedang: ${item.sedang}"></div>
+                                        <div class="progress-segment" style="width:${pT}%;background:var(--aqi-unhealthy)" title="Tidak Sehat: ${item.tidak_sehat}"></div>
+                                        <div class="progress-segment" style="width:${pX}%;background:var(--aqi-hazardous)" title="Berbahaya: ${item.berbahaya}"></div>
+                                    </div>
+                                </td>
+                                <td style="color:var(--text-secondary);font-size:0.8rem">${total}</td>
+                            `;
+                            distBody.appendChild(tr);
                         });
                     }
                 }
@@ -385,13 +332,12 @@
             }
         }
 
-        // Initialize components
-        initMap();
-        initChart();
-
-        // Fetch immediately, then every 30 seconds
-        fetchData();
-        setInterval(fetchData, 30000);
+        (function() {
+            try { initMap(); } catch(e) { console.warn('Map init:', e); }
+            try { initChart(); } catch(e) { console.warn('Chart init:', e); }
+            fetchData();
+            setInterval(fetchData, 30000);
+        })();
     </script>
 </body>
 </html>

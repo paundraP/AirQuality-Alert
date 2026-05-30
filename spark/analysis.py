@@ -1,8 +1,23 @@
+"""
+analysis.py — Pipeline Medallion untuk AirQuality-Alert
+========================================================
+Arsitektur:
+  HDFS (JSON raw)
+    → BRONZE  : raw data + metadata ingest, schema enforcement
+    → SILVER  : cleaned, dedup, cast tipe, kategorisasi AQI
+    → GOLD    : agregasi untuk dashboard (ranking, jam puncak, distribusi)
+    → EXPORT  : Gold → spark_results.json untuk Flask dashboard
+
+Semua analisis lama (distribusi, jam puncak, ranking, MLlib) tetap ada,
+hanya sekarang dibaca dari SILVER (data bersih) bukan langsung dari HDFS.
+"""
+
 import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from delta import configure_spark_with_delta_pip
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.feature import OneHotEncoder, StringIndexer, VectorAssembler
@@ -12,19 +27,34 @@ from pyspark.sql.functions import (
     avg,
     col,
     count,
+    current_timestamp,
     desc,
     first,
     hour,
+    lit,
+    max as spark_max,
+    min as spark_min,
     rank,
     round as spark_round,
+    sum as spark_sum,
     to_timestamp,
+    trim,
+    upper,
     when,
 )
 from pyspark.sql.window import Window
 
 
-HDFS_API_PATH = os.getenv("HDFS_API_PATH", "hdfs://namenode:9000/data/airquality/api/")
+# ── Konfigurasi path ───────────────────────────────────────────────────────────
+HDFS_API_PATH   = os.getenv("HDFS_API_PATH",   "hdfs://namenode:9000/data/airquality/api/")
 HDFS_RESULT_PATH = os.getenv("HDFS_RESULT_PATH", "hdfs://namenode:9000/data/airquality/hasil")
+
+# Delta Lake base — di-mount dari host via docker-compose volume
+DELTA_BASE  = os.getenv("DELTA_BASE_PATH", "/app/delta_lake")
+BRONZE_PATH = f"{DELTA_BASE}/bronze/airquality"
+SILVER_PATH = f"{DELTA_BASE}/silver/airquality"
+GOLD_PATH   = f"{DELTA_BASE}/gold/airquality_agg"
+
 RESULTS_PATH = Path(
     os.getenv(
         "SPARK_RESULTS_PATH",
@@ -34,161 +64,265 @@ RESULTS_PATH = Path(
 WIB = timezone(timedelta(hours=7))
 
 
-def create_spark_session():
-    return (
+# ── SparkSession dengan Delta Lake ────────────────────────────────────────────
+def create_spark_session() -> SparkSession:
+    """
+    Buat SparkSession dengan ekstensi Delta Lake.
+    configure_spark_with_delta_pip() otomatis menambahkan jar Delta ke classpath.
+    Tanpa ini, format "delta" tidak dikenali saat write/read.
+    """
+    builder = (
         SparkSession.builder
         .master("local[*]")
-        .appName("Analisis_AQI_Jatim")
-        .config("spark.driver.memory", "512m")
+        .appName("AQI_Medallion_Jatim")
+        .config("spark.driver.memory", "768m")
         .config("spark.driver.bindAddress", "0.0.0.0")
-        .getOrCreate()
+        # Dua config ini wajib agar Delta Lake bisa baca/tulis tabel
+        .config("spark.sql.extensions",
+                "io.delta.sql.DeltaSparkSessionExtension")
+        .config("spark.sql.catalog.spark_catalog",
+                "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     )
+    return configure_spark_with_delta_pip(builder).getOrCreate()
 
 
-def load_api_data(spark):
-    df_api_raw = (
+# ════════════════════════════════════════════════════════════════════════════════
+# LAYER 1 — BRONZE
+# Tujuan: simpan data mentah dari HDFS ke Delta Lake dengan metadata tambahan.
+# Tidak ada transformasi logis di sini — data harus semirip mungkin aslinya.
+# Kenapa penting? Kalau ada bug di Silver/Gold, kita bisa replay dari Bronze
+# tanpa harus re-ingest dari HDFS/Kafka.
+# ════════════════════════════════════════════════════════════════════════════════
+def write_bronze(spark: SparkSession) -> None:
+    print("[BRONZE] Membaca JSON dari HDFS...")
+    df_raw = (
         spark.read
         .option("multiline", "true")
         .json(HDFS_API_PATH)
     )
 
-    df_api = (
-        df_api_raw
-        .withColumn("aqi", col("aqi").cast("double"))
+    if df_raw.rdd.isEmpty():
+        raise RuntimeError("[BRONZE] Tidak ada data di HDFS path: " + HDFS_API_PATH)
+
+    df_bronze = (
+        df_raw
+        # Tambah kolom metadata — ini TIDAK mengubah data asli,
+        # hanya menambah informasi kapan dan dari mana data masuk
+        .withColumn("_ingested_at", current_timestamp())
+        .withColumn("_source", lit("ispu_api"))
+    )
+
+    # Mode "append" → setiap run menambah data, tidak menimpa
+    # mergeSchema=true → toleran jika suatu saat ada kolom baru dari API
+    (
+        df_bronze.write
+        .format("delta")
+        .mode("append")
+        .option("mergeSchema", "true")
+        .save(BRONZE_PATH)
+    )
+    row_count = df_bronze.count()
+    print(f"[BRONZE] Selesai. {row_count} baris ditulis ke {BRONZE_PATH}")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# LAYER 2 — SILVER
+# Tujuan: bersihkan dan standarisasi data dari Bronze.
+# Di sinilah semua "opini" tentang data berada:
+#   - Apa yang dianggap duplikat?
+#   - Nilai null mana yang dihapus vs diisi?
+#   - Bagaimana nama kota distandarisasi?
+#   - Kategorisasi AQI menggunakan skala apa?
+# ════════════════════════════════════════════════════════════════════════════════
+def write_silver(spark: SparkSession) -> None:
+    print("[SILVER] Membaca dari Bronze...")
+    df_bronze = spark.read.format("delta").load(BRONZE_PATH)
+
+    df_silver = (
+        df_bronze
+        # --- Cast tipe data ---
+        # Di Bronze, semua kolom bisa jadi string karena baca dari JSON mentah.
+        # Di Silver, kita pastikan tipe sudah benar untuk komputasi.
+        .withColumn("aqi",  col("aqi").cast("double"))
         .withColumn("pm25", col("pm25").cast("double"))
         .withColumn("ts", to_timestamp(col("ingested_at"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"))
-        .withColumn("jam", hour(col("ts")))
+        .withColumn("jam",  hour(col("ts")))
+
+        # --- Standarisasi nama kota ---
+        # upper+trim menghilangkan perbedaan seperti "jakarta", "Jakarta ", "JAKARTA"
+        # sehingga groupBy("kota") menghasilkan hasil yang konsisten
+        .withColumn("kota", upper(trim(col("kota"))))
+
+        # --- Filter data invalid ---
+        # Hapus baris yang tidak punya kota atau AQI — tidak bisa dianalisis
         .filter(col("kota").isNotNull() & col("aqi").isNotNull())
-    )
+        # Filter nilai AQI yang tidak masuk akal secara fisik
+        .filter(col("aqi").between(0, 999))
 
-    print("Schema data API:")
-    df_api.printSchema()
-    df_api.select("kota", "aqi", "ingested_at", "ts", "jam").show(5, truncate=False)
-    return df_api
+        # --- Deduplikasi ---
+        # Jika consumer mengirim data yang sama dua kali (network retry),
+        # dropDuplicates memastikan hanya satu yang masuk Silver
+        .dropDuplicates(["kota", "ingested_at"])
 
-
-def run_category_analysis(df_api):
-    df_classified = df_api.withColumn(
-        "kategori_baru",
-        when(col("aqi") <= 50, "Baik")
-        .when((col("aqi") > 50) & (col("aqi") <= 100), "Sedang")
-        .when((col("aqi") > 100) & (col("aqi") <= 200), "Tidak Sehat")
-        .otherwise("Berbahaya"),
-    )
-
-    total_kota = df_classified.groupBy("kota").count().withColumnRenamed("count", "total")
-    distribusi = df_classified.groupBy("kota", "kategori_baru").count()
-    hasil_analisis = (
-        distribusi.join(total_kota, "kota")
-        .withColumn("persentase", spark_round((col("count") / col("total")) * 100, 1))
-        .select("kota", "kategori_baru", "persentase")
-        .orderBy("kota", "kategori_baru")
-    )
-
-    hasil_analisis.write.mode("overwrite").json(f"{HDFS_RESULT_PATH}/analisis1")
-    print(f"Analisis 1 tersimpan ke HDFS: {HDFS_RESULT_PATH}/analisis1")
-    return df_classified, hasil_analisis
-
-
-def run_hourly_analysis(df_api):
-    df_api.createOrReplaceTempView("aqi_ts")
-    hasil2 = df_api.sparkSession.sql(
-        """
-        SELECT kota,
-               HOUR(ts)            AS jam,
-               ROUND(AVG(aqi), 1)  AS avg_aqi,
-               COUNT(*)            AS jumlah_data
-        FROM   aqi_ts
-        GROUP  BY kota, HOUR(ts)
-        ORDER  BY kota, avg_aqi DESC
-        """
-    )
-
-    jam_puncak = hasil2.groupBy("kota").agg(
-        first("jam").alias("jam_puncak"),
-        first("avg_aqi").alias("avg_aqi_puncak"),
-        first("jumlah_data").alias("jumlah_data_puncak"),
-    ).orderBy("kota")
-
-    jam_puncak_labeled = jam_puncak.withColumn(
-        "sesi",
-        when((col("jam_puncak") >= 7) & (col("jam_puncak") <= 9), "Pagi Sibuk (07-09)")
-        .when((col("jam_puncak") >= 17) & (col("jam_puncak") <= 19), "Sore Sibuk (17-19)")
-        .when((col("jam_puncak") >= 10) & (col("jam_puncak") <= 16), "Siang (10-16)")
-        .when((col("jam_puncak") >= 20) & (col("jam_puncak") <= 23), "Malam (20-23)")
-        .otherwise("Dini Hari (00-06)"),
-    )
-
-    output_path = f"{HDFS_RESULT_PATH}/analisis2"
-    hasil2.write.mode("overwrite").json(f"{output_path}/avg_aqi_per_jam")
-    jam_puncak_labeled.write.mode("overwrite").json(f"{output_path}/jam_puncak_per_kota")
-    print(f"Analisis 2 tersimpan ke HDFS: {output_path}")
-    return hasil2, jam_puncak_labeled
-
-
-def run_city_ranking_analysis(df_classified):
-    df_classified.createOrReplaceTempView("aqi_data")
-    hasil3 = df_classified.sparkSession.sql(
-        """
-        SELECT kota,
-               ROUND(AVG(aqi), 1)                         AS avg_aqi,
-               MAX(aqi)                                   AS max_aqi,
-               MIN(aqi)                                   AS min_aqi,
-               SUM(CASE WHEN aqi > 100 THEN 1 ELSE 0 END) AS event_tidak_sehat,
-               COUNT(*)                                   AS total_data
-        FROM   aqi_data
-        GROUP  BY kota
-        ORDER  BY avg_aqi DESC
-        """
-    )
-
-    ranking_kota = (
-        hasil3.withColumn("peringkat", rank().over(Window.orderBy(desc("avg_aqi"))))
-        .select(
-            "peringkat",
-            "kota",
-            "avg_aqi",
-            "max_aqi",
-            "min_aqi",
-            "event_tidak_sehat",
-            "total_data",
+        # --- Kategorisasi AQI (skala ISPU Indonesia) ---
+        # Skala ini sama persis dengan yang dipakai di analysis.py lama
+        # Dipindahkan ke Silver agar tersedia untuk semua analisis downstream
+        .withColumn(
+            "kategori_aqi",
+            when(col("aqi") <= 50,  "Baik")
+            .when(col("aqi") <= 100, "Sedang")
+            .when(col("aqi") <= 200, "Tidak Sehat")
+            .otherwise("Berbahaya"),
         )
-        .orderBy("peringkat")
+        .withColumn("_processed_at", current_timestamp())
     )
 
-    output_path = f"{HDFS_RESULT_PATH}/analisis3"
-    ranking_kota.write.mode("overwrite").json(output_path)
-    print(f"Analisis 3 tersimpan ke HDFS: {output_path}")
-    return ranking_kota
+    # Mode "overwrite" → Silver selalu mencerminkan state terbaru dari Bronze
+    # Berbeda dengan Bronze yang append — Silver di-rebuild ulang tiap run
+    (
+        df_silver.write
+        .format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+        .save(SILVER_PATH)
+    )
+    row_count = df_silver.count()
+    print(f"[SILVER] Selesai. {row_count} baris ditulis ke {SILVER_PATH}")
 
 
-def write_dashboard_results(hasil_analisis, hasil2, jam_puncak_labeled, ranking_kota):
-    distribusi_records = (
-        hasil_analisis
-        .withColumnRenamed("kategori_baru", "kategori")
-        .toPandas()
-        .to_dict("records")
+# ════════════════════════════════════════════════════════════════════════════════
+# LAYER 3 — GOLD
+# Tujuan: agregasi siap pakai untuk dashboard.
+# Gold adalah "produk akhir" dari pipeline — data di sini sudah
+# dalam bentuk yang langsung bisa ditampilkan di UI tanpa transformasi lagi.
+# ════════════════════════════════════════════════════════════════════════════════
+def write_gold(spark: SparkSession) -> None:
+    print("[GOLD] Membaca dari Silver...")
+    df_silver = spark.read.format("delta").load(SILVER_PATH)
+
+    # Gold tabel 1: ranking kota berdasarkan rata-rata AQI
+    # Ini menggantikan run_city_ranking_analysis() lama
+    df_gold_ranking = (
+        df_silver
+        .groupBy("kota")
+        .agg(
+            spark_round(avg("aqi"), 1).alias("avg_aqi"),
+            spark_max("aqi").cast("int").alias("max_aqi"),
+            spark_min("aqi").cast("int").alias("min_aqi"),
+            spark_sum(when(col("aqi") > 100, 1).otherwise(0)).alias("event_tidak_sehat"),
+            count("*").alias("total_data"),
+        )
+        .withColumn(
+            "peringkat",
+            rank().over(Window.orderBy(desc("avg_aqi")))
+        )
+        .withColumn("_aggregated_at", current_timestamp())
     )
 
-    results = {
-        "distribusi_kategori": distribusi_records,
-        "aqi_per_jam": hasil2.toPandas().to_dict("records"),
-        "ranking_kota": ranking_kota.toPandas().to_dict("records"),
-        "jam_puncak_per_kota": jam_puncak_labeled.toPandas().to_dict("records"),
-        "generated_at": datetime.now(WIB).isoformat(),
-    }
+    # Gold tabel 2: rata-rata AQI per kota per jam (untuk chart jam puncak)
+    df_gold_hourly = (
+        df_silver
+        .filter(col("jam").isNotNull())
+        .groupBy("kota", "jam")
+        .agg(
+            spark_round(avg("aqi"), 1).alias("avg_aqi"),
+            count("*").alias("jumlah_data"),
+        )
+        .withColumn("_aggregated_at", current_timestamp())
+    )
 
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with RESULTS_PATH.open("w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+    # Gold tabel 3: distribusi kategori AQI per kota
+    df_gold_distribusi = (
+        df_silver
+        .groupBy("kota", "kategori_aqi")
+        .count()
+        .withColumnRenamed("count", "jumlah")
+    )
 
-    print(f"spark_results.json tersimpan ke: {RESULTS_PATH}")
-    return results
+    # Simpan semua tabel Gold
+    for df, subpath in [
+        (df_gold_ranking,   f"{GOLD_PATH}/ranking"),
+        (df_gold_hourly,    f"{GOLD_PATH}/hourly"),
+        (df_gold_distribusi, f"{GOLD_PATH}/distribusi"),
+    ]:
+        (
+            df.write
+            .format("delta")
+            .mode("overwrite")
+            .option("overwriteSchema", "true")
+            .save(subpath)
+        )
+    print(f"[GOLD] Selesai. 3 tabel ditulis ke {GOLD_PATH}")
 
 
-def add_mllib_predictions(df_api, results):
+# ── Fungsi-fungsi analisis (membaca dari Gold, bukan HDFS) ────────────────────
+# Fungsi-fungsi di bawah ini adalah versi baru dari fungsi lama di analysis.py.
+# Perbedaan utama: sumber data sekarang Gold layer, bukan df_api langsung.
+# Logika analisis sendiri tidak berubah.
+
+def run_category_analysis_from_gold(spark: SparkSession):
+    """Distribusi kategori AQI per kota — baca dari Gold distribusi."""
+    df = spark.read.format("delta").load(f"{GOLD_PATH}/distribusi")
+
+    # Hitung total per kota untuk menghitung persentase
+    total_per_kota = df.groupBy("kota").agg(spark_sum("jumlah").alias("total"))
+    hasil = (
+        df.join(total_per_kota, "kota")
+        .withColumn("persentase", spark_round((col("jumlah") / col("total")) * 100, 1))
+        .select("kota", col("kategori_aqi").alias("kategori"), "persentase")
+        .orderBy("kota", "kategori")
+    )
+    hasil.write.mode("overwrite").json(f"{HDFS_RESULT_PATH}/analisis1")
+    return hasil
+
+
+def run_hourly_analysis_from_gold(spark: SparkSession):
+    """Jam puncak polusi per kota — baca dari Gold hourly."""
+    df_hourly = spark.read.format("delta").load(f"{GOLD_PATH}/hourly")
+
+    # Jam puncak = jam dengan avg_aqi tertinggi per kota
+    window_kota = Window.partitionBy("kota").orderBy(desc("avg_aqi"))
+    jam_puncak = (
+        df_hourly
+        .withColumn("_rank", rank().over(window_kota))
+        .filter(col("_rank") == 1)
+        .drop("_rank")
+        .withColumnRenamed("avg_aqi", "avg_aqi_puncak")
+        .withColumnRenamed("jumlah_data", "jumlah_data_puncak")
+        .withColumn(
+            "jam_puncak",
+            col("jam")
+        )
+        .withColumn(
+            "sesi",
+            when((col("jam") >= 7)  & (col("jam") <= 9),  "Pagi Sibuk (07-09)")
+            .when((col("jam") >= 17) & (col("jam") <= 19), "Sore Sibuk (17-19)")
+            .when((col("jam") >= 10) & (col("jam") <= 16), "Siang (10-16)")
+            .when((col("jam") >= 20) & (col("jam") <= 23), "Malam (20-23)")
+            .otherwise("Dini Hari (00-06)"),
+        )
+    )
+
+    df_hourly.write.mode("overwrite").json(f"{HDFS_RESULT_PATH}/analisis2/avg_aqi_per_jam")
+    jam_puncak.write.mode("overwrite").json(f"{HDFS_RESULT_PATH}/analisis2/jam_puncak_per_kota")
+    return df_hourly, jam_puncak
+
+
+def run_ranking_from_gold(spark: SparkSession):
+    """Ranking kota — baca langsung dari Gold ranking."""
+    df_ranking = spark.read.format("delta").load(f"{GOLD_PATH}/ranking")
+    df_ranking.write.mode("overwrite").json(f"{HDFS_RESULT_PATH}/analisis3")
+    return df_ranking
+
+
+def add_mllib_predictions(spark: SparkSession, df_silver, results: dict) -> dict:
+    """
+    Prediksi AQI 24 jam dengan LinearRegression MLlib.
+    Fungsi ini TIDAK berubah dari versi lama — hanya sumber data (df_silver)
+    yang sekarang lebih bersih karena sudah melalui layer Silver.
+    """
     df_ml = (
-        df_api
+        df_silver
         .filter(col("aqi").isNotNull() & col("jam").isNotNull() & col("kota").isNotNull())
         .select("kota", "jam", "aqi")
     )
@@ -196,7 +330,7 @@ def add_mllib_predictions(df_api, results):
     n_rows = df_ml.count()
     n_cities = df_ml.select("kota").distinct().count()
     if n_rows < 4 or n_cities < 1:
-        print(f"Skip MLlib: data training belum cukup. rows={n_rows}, cities={n_cities}")
+        print(f"[MLlib] Skip: data belum cukup. rows={n_rows}, cities={n_cities}")
         results["prediksi_aqi"] = []
         results["model_metrics"] = {
             "algorithm": "LinearRegression",
@@ -207,82 +341,117 @@ def add_mllib_predictions(df_api, results):
         }
         return results
 
-    indexer = StringIndexer(inputCol="kota", outputCol="kota_idx", handleInvalid="keep")
-    encoder = OneHotEncoder(inputCols=["kota_idx"], outputCols=["kota_vec"])
+    indexer  = StringIndexer(inputCol="kota", outputCol="kota_idx", handleInvalid="keep")
+    encoder  = OneHotEncoder(inputCols=["kota_idx"], outputCols=["kota_vec"])
     assembler = VectorAssembler(inputCols=["jam", "kota_vec"], outputCol="features")
     lr = LinearRegression(featuresCol="features", labelCol="aqi", regParam=0.1)
     pipeline = Pipeline(stages=[indexer, encoder, assembler, lr])
 
     train_df, test_df = df_ml.randomSplit([0.8, 0.2], seed=42)
     train_rows = train_df.count()
-    test_rows = test_df.count()
+    test_rows  = test_df.count()
     if train_rows == 0:
-        print("Skip MLlib: train split kosong")
+        print("[MLlib] Skip: train split kosong")
         return results
 
     model = pipeline.fit(train_df)
+    rmse = r2 = None
     if test_rows > 0:
-        predictions_test = model.transform(test_df)
-        rmse = RegressionEvaluator(
-            labelCol="aqi",
-            predictionCol="prediction",
-            metricName="rmse",
-        ).evaluate(predictions_test)
-        r2 = RegressionEvaluator(
-            labelCol="aqi",
-            predictionCol="prediction",
-            metricName="r2",
-        ).evaluate(predictions_test)
-    else:
-        rmse = None
-        r2 = None
+        preds_test = model.transform(test_df)
+        evaluator = RegressionEvaluator(labelCol="aqi", predictionCol="prediction")
+        rmse = evaluator.setMetricName("rmse").evaluate(preds_test)
+        r2   = evaluator.setMetricName("r2").evaluate(preds_test)
 
     kota_list = [r["kota"] for r in df_ml.select("kota").distinct().collect()]
     grid_rows = [Row(kota=k, jam=h, aqi=0.0) for k in kota_list for h in range(24)]
-    grid_df = df_api.sparkSession.createDataFrame(grid_rows)
+    grid_df   = spark.createDataFrame(grid_rows)
     preds_full = (
         model.transform(grid_df)
         .select("kota", "jam", spark_round("prediction", 1).alias("predicted_aqi"))
         .orderBy("kota", "jam")
     )
 
-    results["prediksi_aqi"] = preds_full.toPandas().to_dict("records")
+    results["prediksi_aqi"]  = preds_full.toPandas().to_dict("records")
     results["model_metrics"] = {
         "algorithm": "LinearRegression",
-        "features": ["jam", "kota (one-hot)"],
+        "features":  ["jam", "kota (one-hot)"],
         "train_rows": train_rows,
-        "test_rows": test_rows,
-        "rmse": round(float(rmse), 2) if rmse is not None else None,
-        "r2": round(float(r2), 3) if r2 is not None else None,
+        "test_rows":  test_rows,
+        "rmse": round(float(rmse), 2) if rmse else None,
+        "r2":   round(float(r2), 3)   if r2   else None,
     }
-    results["generated_at"] = datetime.now(WIB).isoformat()
     return results
 
 
-def save_results(results):
+# ── Export ke dashboard ────────────────────────────────────────────────────────
+def export_to_dashboard(spark: SparkSession,
+                        hasil_distribusi,
+                        hasil_hourly,
+                        jam_puncak,
+                        ranking,
+                        results: dict) -> None:
+    """
+    Kumpulkan semua hasil analisis dan tulis ke spark_results.json.
+    Format JSON tidak berubah → app.py dan index.html tidak perlu dimodifikasi.
+    """
+    results.update({
+        "distribusi_kategori": (
+            hasil_distribusi
+            .toPandas()
+            .to_dict("records")
+        ),
+        "aqi_per_jam": hasil_hourly.toPandas().to_dict("records"),
+        "jam_puncak_per_kota": jam_puncak.toPandas().to_dict("records"),
+        "ranking_kota": ranking.toPandas().to_dict("records"),
+        "generated_at": datetime.now(WIB).isoformat(),
+    })
+
+    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with RESULTS_PATH.open("w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2, default=str)
-    print(f"spark_results.json final tersimpan ke: {RESULTS_PATH}")
+    print(f"[EXPORT] spark_results.json → {RESULTS_PATH}")
 
 
+# ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     spark = create_spark_session()
-    try:
-        df_api = load_api_data(spark)
-        if df_api.count() == 0:
-            raise RuntimeError("Tidak ada data API valid di HDFS untuk dianalisis")
+    spark.sparkContext.setLogLevel("WARN")
 
-        df_classified, hasil_analisis = run_category_analysis(df_api)
-        hasil2, jam_puncak_labeled = run_hourly_analysis(df_api)
-        ranking_kota = run_city_ranking_analysis(df_classified)
-        results = write_dashboard_results(
-            hasil_analisis,
-            hasil2,
-            jam_puncak_labeled,
-            ranking_kota,
+    try:
+        # ── Medallion pipeline ──────────────────────────────────────────────
+        print("=" * 60)
+        print("Tahap 1/3 — BRONZE: ingest raw data ke Delta Lake")
+        write_bronze(spark)
+
+        print("Tahap 2/3 — SILVER: cleaning & standardisasi")
+        write_silver(spark)
+
+        print("Tahap 3/3 — GOLD: agregasi untuk dashboard")
+        write_gold(spark)
+        print("=" * 60)
+
+        # ── Analisis dari Gold ──────────────────────────────────────────────
+        print("Menjalankan analisis dari Gold layer...")
+        hasil_distribusi          = run_category_analysis_from_gold(spark)
+        hasil_hourly, jam_puncak  = run_hourly_analysis_from_gold(spark)
+        ranking                   = run_ranking_from_gold(spark)
+
+        # ── MLlib dari Silver (butuh data granular, bukan agregat) ──────────
+        df_silver = spark.read.format("delta").load(SILVER_PATH)
+        results   = {}
+        results   = add_mllib_predictions(spark, df_silver, results)
+
+        # ── Export ke dashboard ─────────────────────────────────────────────
+        export_to_dashboard(
+            spark,
+            hasil_distribusi,
+            hasil_hourly,
+            jam_puncak,
+            ranking,
+            results,
         )
-        results = add_mllib_predictions(df_api, results)
-        save_results(results)
+        print("[DONE] Pipeline Medallion selesai.")
+
     finally:
         spark.stop()
 

@@ -6,3 +6,4 @@ Flask==3.0.3
 pyspark==3.5.1
 pandas==2.2.2
 certifi==2024.7.4
+delta-spark==3.2.0

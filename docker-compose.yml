@@ -164,15 +164,20 @@ services:
       PIPELINE_INTERVAL_SECONDS: ${PIPELINE_INTERVAL_SECONDS:-900}
       CONSUMER_FLUSH_WAIT_SECONDS: ${CONSUMER_FLUSH_WAIT_SECONDS:-75}
       SENT_ARTICLES_FILE: /app/dashboard/data/sent_articles.json
+      # ← BARU: path Delta Lake di dalam container
+      DELTA_BASE_PATH: /app/delta_lake
     volumes:
       - ./dashboard/data:/app/dashboard/data
       - ./spark:/app/spark
       - ./logs:/app/logs
+      # ← BARU: mount folder delta_lake dari host ke container
+      # Ini penting agar data Delta Lake persisten di luar container
+      - ./delta_lake:/app/delta_lake
     command: ["python3", "scripts/scheduler.py"]
     deploy:
       resources:
         limits:
-          memory: 1g
+          memory: 1500m
     networks:
       - airquality-net
 
@@ -200,6 +205,7 @@ services:
 volumes:
   hadoop_namenode:
   hadoop_datanode:
+  # ← BARU: tidak perlu Docker volume khusus karena pakai bind mount ./delta_lake
 
 networks:
   airquality-net:

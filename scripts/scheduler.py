@@ -76,9 +76,12 @@ def hdfs_file_count(client, directory):
         return 0
 
 
-def run_command(args, cwd):
+def run_command(args, cwd, extra_env=None):
     log(f"Running: {' '.join(args)}")
-    subprocess.run(args, cwd=cwd, check=True)
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    subprocess.run(args, cwd=cwd, check=True, env=env)
 
 
 def run_ingestion_cycle(client):
@@ -100,8 +103,34 @@ def run_ingestion_cycle(client):
 
 
 def run_spark_analysis():
+    """
+    Jalankan analysis.py (pipeline Medallion).
+
+    Perubahan dari versi lama:
+    - Tambahkan PYSPARK_SUBMIT_ARGS agar Delta Lake jar otomatis terpakai
+      tanpa perlu spark-submit manual.
+    - configure_spark_with_delta_pip() di dalam analysis.py akan men-download
+      jar delta-spark sekali saat pertama kali, lalu cache di ~/.ivy2/cache.
+    - DELTA_BASE_PATH diteruskan agar analysis.py tahu di mana menyimpan
+      Bronze/Silver/Gold (sesuai yang di-mount di docker-compose.yml).
+    """
     output_path = ROOT_DIR / "dashboard" / "data" / "spark_results.json"
-    run_command(["python3", "analysis.py"], ROOT_DIR / "spark")
+
+    # PYSPARK_SUBMIT_ARGS ini memberitahu PySpark untuk menyertakan
+    # package delta-spark saat membuat SparkContext.
+    # Tanpa ini, `configure_spark_with_delta_pip()` tidak bisa bekerja.
+    delta_env = {
+        "PYSPARK_SUBMIT_ARGS": (
+            "--packages io.delta:delta-spark_2.12:3.2.0 pyspark-shell"
+        ),
+        "DELTA_BASE_PATH": os.getenv("DELTA_BASE_PATH", "/app/delta_lake"),
+    }
+
+    run_command(
+        ["python3", "analysis.py"],
+        ROOT_DIR / "spark",
+        extra_env=delta_env,
+    )
     log(f"Spark results updated: {output_path}")
 
 

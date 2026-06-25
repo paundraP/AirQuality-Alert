@@ -6,27 +6,25 @@ app = Flask(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 
+
+# ── Loader umum ───────────────────────────────────────────────────────────────
 def load_json(filename):
     filepath = os.path.join(DATA_DIR, filename)
     try:
         with open(filepath, 'r') as f:
-            data = json.load(f)
-            return data
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return []
+
 
 def load_latest_batch(dirname):
     directory = os.path.join(DATA_DIR, dirname)
     if not os.path.exists(directory):
         return []
-
-    files = [
-        f for f in os.listdir(directory)
-        if f.startswith('data_') and f.endswith('.json')
-    ]
+    files = [f for f in os.listdir(directory)
+             if f.startswith('data_') and f.endswith('.json')]
     if not files:
         return []
-
     files.sort(reverse=True)
     try:
         with open(os.path.join(directory, files[0]), 'r') as f:
@@ -40,7 +38,6 @@ def load_all_batches(dirname):
     directory = os.path.join(DATA_DIR, dirname)
     if not os.path.exists(directory):
         return []
-
     files = sorted(
         [f for f in os.listdir(directory)
          if f.startswith('data_') and f.endswith('.json')],
@@ -56,8 +53,8 @@ def load_all_batches(dirname):
                     continue
                 for item in data:
                     title = (item.get('title') or item.get('judul') or '').strip().lower()
-                    link = (item.get('link') or '').strip()
-                    key = title or link or json.dumps(item, sort_keys=True)
+                    link  = (item.get('link') or '').strip()
+                    key   = title or link or json.dumps(item, sort_keys=True)
                     if key not in seen:
                         seen.add(key)
                         all_items.append(item)
@@ -65,42 +62,11 @@ def load_all_batches(dirname):
             continue
     return all_items
 
-def normalize_live_api(rows):
-    normalized = []
-    for row in rows:
-        city = row.get('city') or row.get('kota') or row.get('id_stasiun') or ''
-        category = row.get('category') or row.get('kategori') or ''
-        normalized.append({
-            'city': str(city).title(),
-            'aqi': row.get('aqi'),
-            'category': category,
-            'timestamp': row.get('timestamp') or row.get('ingested_at') or '',
-            'pm25': row.get('pm25')
-        })
-
-    normalized.sort(key=lambda item: float(item.get('aqi') or 0), reverse=True)
-    return normalized
-
-
-def aqi_category(aqi_val):
-    try:
-        aqi = float(aqi_val)
-    except (TypeError, ValueError):
-        return ''
-    if aqi <= 50:
-        return 'BAIK'
-    if aqi <= 100:
-        return 'SEDANG'
-    if aqi <= 200:
-        return 'TIDAK SEHAT'
-    return 'BERBAHAYA'
-
 
 def load_latest_per_city(dirname):
     directory = os.path.join(DATA_DIR, dirname)
     if not os.path.exists(directory):
         return {}
-
     files = sorted(
         [f for f in os.listdir(directory)
          if f.startswith('data_') and f.endswith('.json')],
@@ -114,102 +80,197 @@ def load_latest_per_city(dirname):
                 if not isinstance(data, list):
                     continue
                 for item in data:
-                    city = str(item.get('city') or item.get('kota') or item.get('id_stasiun') or '').title()
+                    city = str(item.get('city') or item.get('kota') or
+                               item.get('id_stasiun') or '').title()
                     if city and city not in latest:
                         latest[city] = item
         except (OSError, json.JSONDecodeError):
             continue
     return latest
 
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+def aqi_category(aqi_val):
+    try:
+        aqi = float(aqi_val)
+    except (TypeError, ValueError):
+        return ''
+    if aqi <= 50:   return 'BAIK'
+    if aqi <= 100:  return 'SEDANG'
+    if aqi <= 200:  return 'TIDAK SEHAT'
+    return 'BERBAHAYA'
+
+
+def normalize_live_api(rows):
+    normalized = []
+    for row in rows:
+        city     = row.get('city') or row.get('kota') or row.get('id_stasiun') or ''
+        category = row.get('category') or row.get('kategori') or ''
+        normalized.append({
+            'city':      str(city).title(),
+            'aqi':       row.get('aqi'),
+            'category':  category,
+            'timestamp': row.get('timestamp') or row.get('ingested_at') or '',
+            'pm25':      row.get('pm25'),
+        })
+    normalized.sort(key=lambda item: float(item.get('aqi') or 0), reverse=True)
+    return normalized
+
+
 def normalize_live_rss(rows):
     return [{
-        'title': item.get('title') or item.get('judul', ''),
-        'link': item.get('link', ''),
+        'title':     item.get('title') or item.get('judul', ''),
+        'link':      item.get('link', ''),
         'published': item.get('published') or item.get('waktu_terbit', ''),
-        'summary': item.get('summary') or item.get('ringkasan', '')
+        'summary':   item.get('summary') or item.get('ringkasan', ''),
     } for item in rows]
 
-def enrich_spark_results(results):
+
+# ── UPGRADE: Baca dari Gold Delta (via gold_results.json) ─────────────────────
+def load_gold_results():
+    """
+    Coba baca gold_results.json (hasil 04_export_gold.py) terlebih dahulu.
+    Kalau belum ada / gagal, fallback ke spark_results.json lama.
+    """
+    gold_path  = os.path.join(DATA_DIR, 'gold_results.json')
+    spark_path = os.path.join(DATA_DIR, 'spark_results.json')
+
+    for path in [gold_path, spark_path]:
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+                source = 'Gold Delta' if path == gold_path else 'spark_results (lama)'
+                print(f"[DASHBOARD] Data Spark dari: {source}")
+                return data
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+
+    return {}
+
+
+def enrich_results(results):
+    """
+    Normalisasi field dari gold_results.json maupun spark_results.json
+    ke format yang sama untuk template HTML.
+    """
     if not isinstance(results, dict):
         return {}
 
     enriched = dict(results)
 
+    # worst_cities — dari ranking_kota (format Gold maupun lama sama)
     if 'worst_cities' not in enriched and isinstance(results.get('ranking_kota'), list):
         enriched['worst_cities'] = [{
             'rank': item.get('peringkat') or item.get('rank'),
             'city': str(item.get('kota') or item.get('city') or '').title(),
-            'avg_aqi': item.get('avg_aqi')
+            'avg_aqi': item.get('avg_aqi'),
         } for item in results['ranking_kota']]
 
-    if 'aqi_distribution' not in enriched and isinstance(results.get('distribusi_kategori'), list):
+    # aqi_distribution — dari distribusi_kategori (Gold) atau distribusi_kategori lama
+    dist_source = results.get('distribusi_kategori') or []
+    if 'aqi_distribution' not in enriched and dist_source:
         by_city = {}
-        for item in results['distribusi_kategori']:
-            city = str(item.get('kota') or item.get('city') or '').title()
-            category = str(item.get('kategori') or item.get('category') or '').lower().replace(' ', '_')
-            count = int(item.get('jumlah_data') or item.get('count') or item.get('total') or item.get('persentase') or 0)
+        for item in dist_source:
+            city     = str(item.get('kota') or item.get('city') or '').title()
+            category = str(item.get('kategori') or item.get('category') or '').lower()
+            count    = int(item.get('jumlah_data') or item.get('count') or
+                          item.get('total') or item.get('persentase') or 0)
             if not city:
                 continue
             bucket = by_city.setdefault(city, {
-                'city': city,
-                'baik': 0,
-                'sedang': 0,
-                'tidak_sehat': 0,
-                'berbahaya': 0
+                'city': city, 'baik': 0, 'sedang': 0,
+                'tidak_sehat': 0, 'berbahaya': 0,
             })
             if 'tidak' in category and 'sehat' in category:
                 bucket['tidak_sehat'] += count
             elif 'berbahaya' in category:
-                bucket['berbahaya'] += count
+                bucket['berbahaya']   += count
             elif 'sedang' in category:
-                bucket['sedang'] += count
+                bucket['sedang']      += count
             else:
-                bucket['baik'] += count
+                bucket['baik']        += count
         enriched['aqi_distribution'] = list(by_city.values())
 
     return enriched
 
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/api/data')
 def get_data():
-    spark_results = enrich_spark_results(load_json('spark_results.json'))
+    # ── 1. Spark/Gold results ─────────────────────────────────────────────────
+    gold_results = enrich_results(load_gold_results())
 
+    # ── 2. Live API (kota real-time) ──────────────────────────────────────────
     live_api = normalize_live_api(load_latest_batch('api'))
     if not live_api:
         live_api = normalize_live_api(load_json('live_api.json'))
 
-    historical = load_latest_per_city('api')
-
+    # Tambahkan kota dari ranking Gold yang belum ada di live feed
+    historical  = load_latest_per_city('api')
     live_cities = {item['city'] for item in live_api}
-    ranking = spark_results.get('ranking_kota') or spark_results.get('worst_cities') or []
+    ranking     = gold_results.get('ranking_kota') or gold_results.get('worst_cities') or []
     for entry in ranking:
         city = str(entry.get('kota') or entry.get('city') or '').title()
         if city and city not in live_cities:
-            aqi = entry.get('avg_aqi')
-            hist = historical.get(city, {})
-            category = hist.get('category') or hist.get('kategori') or aqi_category(aqi)
-            timestamp = hist.get('timestamp') or hist.get('ingested_at') or spark_results.get('generated_at', '')
+            aqi       = entry.get('avg_aqi')
+            hist      = historical.get(city, {})
+            category  = (hist.get('category') or hist.get('kategori') or
+                         aqi_category(aqi))
+            timestamp = (hist.get('timestamp') or hist.get('ingested_at') or
+                         gold_results.get('generated_at', ''))
             live_api.append({
-                'city': city,
-                'aqi': aqi,
-                'category': category,
+                'city':      city,
+                'aqi':       aqi,
+                'category':  category,
                 'timestamp': timestamp,
-                'pm25': hist.get('pm25')
+                'pm25':      hist.get('pm25'),
             })
     live_api.sort(key=lambda item: float(item.get('aqi') or 0), reverse=True)
 
+    # ── 3. Live RSS ───────────────────────────────────────────────────────────
     live_rss = normalize_live_rss(load_all_batches('rss'))
     if not live_rss:
         live_rss = normalize_live_rss(load_json('live_rss.json'))
 
     return jsonify({
-        'spark_results': spark_results,
-        'live_api': live_api,
-        'live_rss': live_rss
+        'spark_results': gold_results,   # key tetap sama agar template tidak perlu diubah
+        'live_api':      live_api,
+        'live_rss':      live_rss,
     })
+
+
+@app.route('/api/gold/ranking')
+def get_gold_ranking():
+    """Endpoint baru: ranking kota langsung dari Gold."""
+    data = load_gold_results()
+    return jsonify(data.get('ranking_kota', []))
+
+
+@app.route('/api/gold/distribusi')
+def get_gold_distribusi():
+    """Endpoint baru: distribusi kategori AQI per kota dari Gold."""
+    data = load_gold_results()
+    return jsonify(data.get('distribusi_kategori', []))
+
+
+@app.route('/api/gold/trend')
+def get_gold_trend():
+    """Endpoint baru: tren AQI (Enhanced G4) dari Gold."""
+    data = load_gold_results()
+    return jsonify(data.get('aqi_trend', []))
+
+
+@app.route('/api/gold/alert')
+def get_gold_alert():
+    """Endpoint baru: alert kota tidak sehat (Enhanced G5) dari Gold."""
+    data = load_gold_results()
+    return jsonify(data.get('aqi_alert', []))
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

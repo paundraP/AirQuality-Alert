@@ -299,10 +299,12 @@ def demonstrate_time_travel(spark):
     print("\n[TIME TRAVEL Step 3] Melakukan UPDATE pada tabel Silver...")
     print("(Mengisi nilai kota yang null dengan 'UNKNOWN' sebagai simulasi koreksi)")
 
+    # JADI INI:
     delta_table.update(
-        condition="kota IS NULL",
-        set={"kota": "'UNKNOWN'"}
+        condition="kota = 'SURABAYA'",
+        set={"kota": "'SURABAYA_UPDATED'"}
     )
+    
     print("UPDATE selesai.")
 
     # ── Step 4: Lihat history setelah update ─────────────────────────────────
